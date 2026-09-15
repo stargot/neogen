@@ -1,0 +1,13 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Godot
+.godot/
+*.tmp
+export.cfg
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
