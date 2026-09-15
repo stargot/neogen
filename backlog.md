@@ -101,7 +101,7 @@
   - DoD: тесты: обращение к `os.execute` / `io.open` / `load` → ошибка скрипта; сам `Runtime` после этого продолжает работать.
   - Зависит от: 2.1.
 
-- [ ] **2.3. Instruction budget на тик** — M, риск: средний
+- [x] **2.3. Instruction budget на тик** — M, риск: средний ✅ `a754315`
   - Файлы: `src/budget.rs`, `tests/budget.rs`.
   - Шаги: coroutine на скрипт; счётчик инструкций через debug-hook (`set_hook` с count-trigger); бюджет на тик константой (например, 100k, в конфиг); исчерпание → `ScriptError::BudgetExceeded`, coroutine приостанавливается и продолжит со следующего тика.
   - DoD: тесты: `while true do end` получает BudgetExceeded; `world.step()` после этого выполняется; один и тот же скрипт упирается в budget на одном и том же тике (детерминизм).
