@@ -17,6 +17,7 @@ mod errors;
 mod lifecycle;
 mod logbuffer;
 mod sandbox;
+mod scheduler;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -129,16 +130,6 @@ impl Runtime {
     }
 }
 
-/// A script registered with the host's tick loop (see
-/// [`ScriptHost::attach_script`]).
-struct ManagedScript {
-    script: Script,
-    rover: RoverId,
-    #[allow(dead_code)]
-    source: String,
-    state: ScriptState,
-}
-
 /// Host binding the Lua runtime to a real `neogen-core` world (backlog 2.4).
 ///
 /// Owns one [`Runtime`] (Lua state) and one shared [`WorldContext`]
@@ -164,7 +155,7 @@ struct ManagedScript {
 pub struct ScriptHost {
     runtime: Runtime,
     context: api::SharedContext,
-    managed: BTreeMap<u32, ManagedScript>,
+    managed: BTreeMap<u32, scheduler::ManagedScript>,
 }
 
 impl ScriptHost {
@@ -195,7 +186,7 @@ impl ScriptHost {
         let script = self.build_script(rover, source, id)?;
         self.managed.insert(
             id,
-            ManagedScript {
+            scheduler::ManagedScript {
                 script,
                 rover,
                 source: source.to_string(),
@@ -296,42 +287,7 @@ impl ScriptHost {
     /// ([`ScriptState::SuspendedBudget`]), not a failure, and is not
     /// logged.
     pub fn step_world(&mut self) {
-        let ids: Vec<u32> = self.managed.keys().copied().collect();
-        for id in ids {
-            // Only alive scripts are resumed: a dead coroutine (Finished
-            // or Failed) would error with "non-resumable" on every tick.
-            if !self.managed[&id].state.is_alive() {
-                continue;
-            }
-            let rover = self.managed[&id].rover;
-            let outcome = self
-                .managed
-                .get_mut(&id)
-                .expect("id taken from the map")
-                .script
-                .resume_tick();
-            let state = match outcome {
-                Ok(TickOutcome::Completed(_)) => ScriptState::Finished,
-                Ok(TickOutcome::Yielded(_)) => ScriptState::Running,
-                Err(ScriptError::BudgetExceeded { .. }) => ScriptState::SuspendedBudget,
-                Err(error) => {
-                    // Compile cannot occur here (scripts compile at
-                    // build); anything else is a script failure.
-                    let entry = LogEntry {
-                        tick: self.context.borrow().current_tick(),
-                        script_id: id,
-                        rover_id: rover,
-                        text: errors::log_line(&error),
-                    };
-                    self.context.borrow_mut().log(entry);
-                    ScriptState::Failed(error)
-                }
-            };
-            if let Some(managed) = self.managed.get_mut(&id) {
-                managed.state = state;
-            }
-        }
-        self.context.borrow_mut().world_mut().step();
+        scheduler::run_tick(&mut self.managed, &self.context);
     }
 
     /// Current world tick.
