@@ -31,9 +31,6 @@
 
 use mlua::{Lua, StdLib};
 
-/// Standalone globals removed from the environment (all of `os`/`io`/
-/// `package`/`debug` are listed defensively even though the whitelist
-/// never loads them).
 /// Functions cut from the `coroutine` table: scheduling is the host's.
 const REMOVED_COROUTINE_FNS: &[&str] = &["create", "wrap", "resume", "close"];
 
@@ -41,6 +38,9 @@ const REMOVED_COROUTINE_FNS: &[&str] = &["create", "wrap", "resume", "close"];
 /// non-deterministic in Lua 5.4 (time/address seeding).
 const REMOVED_MATH_FNS: &[&str] = &["random", "randomseed"];
 
+/// Standalone globals removed from the environment (all of `os`/`io`/
+/// `package`/`debug` are listed defensively even though the whitelist
+/// never loads them).
 const REMOVED_GLOBALS: &[&str] = &[
     "os",
     "io",
@@ -76,14 +76,13 @@ pub(crate) fn install(lua: &Lua) -> Result<(), crate::ScriptError> {
             .raw_remove(*name)
             .map_err(|error| crate::ScriptError::runtime(0, 0, &error))?;
     }
-    trim_table(lua, &globals, "coroutine", REMOVED_COROUTINE_FNS)?;
-    trim_table(lua, &globals, "math", REMOVED_MATH_FNS)?;
+    trim_table(&globals, "coroutine", REMOVED_COROUTINE_FNS)?;
+    trim_table(&globals, "math", REMOVED_MATH_FNS)?;
     Ok(())
 }
 
 /// raw-remove the given functions from a shared library table.
 fn trim_table(
-    _lua: &Lua,
     globals: &mlua::Table,
     table: &str,
     functions: &[&str],
