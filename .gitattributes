@@ -1,0 +1,28 @@
+# Auto-detect text files, normalize line endings to LF in the repo.
+* text=auto
+
+# Sources: always LF.
+*.rs    text eol=lf
+*.gd    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.tscn  text eol=lf
+*.lua   text eol=lf
+*.godot text eol=lf
+*.json  text eol=lf
+*.gitignore text eol=lf
+
+# Binaries: never touch.
+*.png  binary
+*.jpg  binary
+*.webp binary
+*.wav  binary
+*.ogg  binary
+*.mp3  binary
+*.glb  binary
+*.blend binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
