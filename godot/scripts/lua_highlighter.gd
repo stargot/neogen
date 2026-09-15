@@ -30,5 +30,9 @@ func _init() -> void:
 	add_color_region("'", "'", STRING_COLOR, true)
 	add_color_region("\"", "\"", STRING_COLOR, true)
 	# Comments: line (--) and block (--[[ ]]).
+	# MVP limitation (review #10): the `--` region is checked first and
+	# paints the `--[[` opener as a line comment, so block comments render
+	# line-by-line in the same color - accepted for now, revisit with the
+	# art pass.
 	add_color_region("--", "", COMMENT_COLOR, true)
 	add_color_region("--[[", "]]", COMMENT_COLOR, false)

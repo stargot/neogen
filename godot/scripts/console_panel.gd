@@ -47,16 +47,25 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # Public for tests: bind any SimNode (the scene wiring uses ../Sim).
+# Guards against a double connect (same pattern as hud.gd).
 func bind_sim(sim) -> void:
 	if sim == null:
 		push_warning("Neogen console: no SimNode to bind")
+		return
+	if _sim != null and _sim == sim:
 		return
 	_sim = sim
 	sim.log_line.connect(_on_log_line)
 
 
+## Host-side line (runner events - Run/hot-reload failures). Direct
+## method call, not the log_line signal: that one carries script output.
+func append_host_line(text: String) -> void:
+	_log().append_text("[host] %s
+" % _escape(text))
+
+
 func _on_log_line(tick: int, rover_id: int, text: String) -> void:
-	print("DBG console got: ", tick, " ", rover_id, " ", text)
 	_log().append_text(_format_line(tick, rover_id, text) + "\n")
 
 

@@ -7,7 +7,9 @@
 # game res:// is read-only packed; the export phase (post-MVP) must
 # switch this to a user:// workspace with import of bundled scripts.
 #
-# MVP write model: FULL REWRITE of the file on save (no diffs).
+# Write model: FULL REWRITE of the file on save (MVP, no diffs), written
+# ATOMICALLY (tmp + rename, backlog 9.3 pattern) so a crash mid-save
+# cannot truncate a script.
 #
 # Safety: file names are validated against a strict whitelist pattern -
 # no separators, no "..", no absolute paths (the editor must never escape
@@ -31,7 +33,8 @@ static func valid_name(file_name: String) -> bool:
 	return _NAME_RE.search(file_name) != null
 
 
-## All `.lua` file names in the folder, sorted; missing folder -> empty.
+## All `.lua` file names in the folder, sorted and filtered by
+## `valid_name` (only names the editor can actually open show up).
 func scan() -> Array[String]:
 	var out: Array[String] = []
 	var dir := DirAccess.open(dir_path())
@@ -41,7 +44,7 @@ func scan() -> Array[String]:
 	dir.list_dir_begin()
 	var entry := dir.get_next()
 	while not entry.is_empty():
-		if not dir.current_is_dir() and entry.ends_with(".lua"):
+		if not dir.current_is_dir() and entry.ends_with(".lua") and valid_name(entry):
 			out.append(entry)
 		entry = dir.get_next()
 	dir.list_dir_end()
@@ -49,19 +52,31 @@ func scan() -> Array[String]:
 	return out
 
 
-## Read a file's text; "" when unreadable (error pushed).
-func read(file_name: String) -> String:
+## Checked read (backlog 5.4 fix #2): distinguishes a real error from an
+## empty file. Returns {err: int, text: String} - err == OK means the
+## text is authoritative (even when empty).
+func read_checked(file_name: String) -> Dictionary:
 	if not valid_name(file_name):
 		push_error("script_files: refusing to read %s" % file_name)
-		return ""
+		return {"err": ERR_INVALID_PARAMETER, "text": ""}
 	var fa := FileAccess.open(_path(file_name), FileAccess.READ)
 	if fa == null:
-		push_error("script_files: cannot read %s" % file_name)
-		return ""
-	return fa.get_as_text()
+		var open_err: int = FileAccess.get_open_error()
+		push_error("script_files: cannot read %s (%s)" % [file_name, error_string(open_err)])
+		return {"err": open_err, "text": ""}
+	if fa.get_length() > MAX_FILE_BYTES:
+		return {"err": ERR_INVALID_DATA, "text": ""}
+	return {"err": OK, "text": fa.get_as_text()}
 
 
-## Write a file (FULL REWRITE, MVP). Returns OK or an error code.
+## Convenience read for UI loading: "" on any error (see read_checked).
+func read(file_name: String) -> String:
+	var res := read_checked(file_name)
+	return res.get("text", "") if res.get("err") == OK else ""
+
+
+## Write a file (FULL REWRITE, MVP), atomically: write to a .tmp sibling,
+## verify, rename over the target. Returns OK or an error code.
 func write(file_name: String, text: String) -> int:
 	if not valid_name(file_name):
 		push_error("script_files: refusing to write %s" % file_name)
@@ -71,10 +86,21 @@ func write(file_name: String, text: String) -> int:
 	var dir := DirAccess.open(dir_path())
 	if dir == null:
 		return ERR_CANT_OPEN
-	var fa := FileAccess.open(_path(file_name), FileAccess.WRITE)
+	var target := _path(file_name)
+	var tmp := target + ".tmp"
+	var fa := FileAccess.open(tmp, FileAccess.WRITE)
 	if fa == null:
 		return FileAccess.get_open_error()
 	fa.store_string(text)
+	if fa.get_error() != OK:
+		fa.close()
+		DirAccess.remove_absolute(tmp)
+		return fa.get_error()
+	fa.close()
+	var err := DirAccess.rename_absolute(tmp, target)
+	if err != OK:
+		DirAccess.remove_absolute(tmp)
+		return err
 	return OK
 
 

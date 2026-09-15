@@ -167,7 +167,8 @@ func _editor_checks() -> void:
 
 
 func _run_stop_checks() -> void:
-	# Backlog 5.4: Run -> moves, Stop -> frozen, hot-reload -> new behavior.
+	# Backlog 5.4: Run -> moves; fix-round: hot-reload is attach-first and
+	# never kills a working script on a broken edit; Stop freezes.
 	var sim := SimNode.new()
 	root.add_child(sim)  # physics drives ticks; positions are deterministic core reads
 	var id := sim.get_rover_ids()[0]
@@ -179,8 +180,13 @@ func _run_stop_checks() -> void:
 	files.write(probe, "move(60, 0)
 ")
 
-	var runner_scene = load("res://scripts/runner.gd")
-	var runner = runner_scene.new()
+	# A console panel bound to the same sim catches host lines.
+	var console: CanvasLayer = load("res://ui/console_panel.tscn").instantiate()
+	console.name = "ConsolePanel"
+	console.bind_sim(sim)
+	root.add_child(console)
+
+	var runner = load("res://scripts/runner.gd").new()
 	root.add_child(runner)
 	runner.bind_sim(sim)
 
@@ -191,35 +197,55 @@ func _run_stop_checks() -> void:
 		func() -> bool: return sim.get_rover_position(id).x - start.x > 1.0, 240
 	)
 	check(frame >= 0, "rover moves after Run (frame %d)" % frame)
+	var moving_at := sim.get_rover_position(id)
 
-	# Stop: the rover freezes (with commands dropped, nothing re-queues).
-	var stopped_ok: bool = runner.stop()
-	check(stopped_ok, "stop reports success")
+	# Broken edit (attach-first): the old script keeps driving, the
+	# binding survives, the console explains.
+	files.write(probe, "retur oops
+")
+	runner.check_now()
+	check(
+		runner.binding.get("script_id") == script_id
+			and runner.binding.get("text") != "retur oops
+",
+		"broken edit keeps the previous binding"
+	)
+	frame = await poll_until(
+		func() -> bool: return sim.get_rover_position(id).x > moving_at.x + 1.0, 240
+	)
+	check(frame >= 0, "rover keeps MOVING on the old code after a broken edit (frame %d)" % frame)
+	check(
+		console.get_log_text().contains("[host] hot-reload failed for %s" % probe),
+		"console explains the failed hot-reload"
+	)
+
+	# Fix the file: the next poll picks up the new version (fresh id) and
+	# the rover drives the other way.
+	files.write(probe, "move(-40, 0)
+")
+	runner.check_now()
+	check(
+		runner.binding.get("script_id") != script_id,
+		"fixed edit re-attached a fresh script id"
+	)
+	frame = await poll_until(
+		func() -> bool: return sim.get_rover_position(id).x < moving_at.x - 1.0, 240
+	)
+	check(frame >= 0, "rover moves the OTHER way after the fixed edit (frame %d)" % frame)
+
+	# Stop: the rover freezes (script parked, command queue cleared).
+	check(runner.stop(), "stop reports success")
 	var frozen_at := sim.get_rover_position(id)
 	frame = await poll_until(
 		func() -> bool: return sim.get_rover_position(id).distance_to(frozen_at) > 0.5, 90
 	)
 	check(frame == -1, "rover stays frozen after Stop")
 	check(
-		sim.get_script_state(script_id) == null or str(sim.get_script_state(script_id).get("state")) != "running",
-		"script no longer running"
+		str(sim.get_script_state(script_id).get("state")) != "running",
+		"old script is not running anymore"
 	)
 
-	# Hot-reload: edit the file on disk; check_now restarts with new text.
-	files.write(probe, "move(-30, 0)
-")
-	runner.check_now()
-	check(
-		runner.binding.get("script_id") != script_id,
-		"hot-reload re-attached a fresh script id"
-	)
-	frame = await poll_until(
-		func() -> bool: return sim.get_rover_position(id).x < frozen_at.x - 1.0, 240
-	)
-	check(frame >= 0, "rover moves the OTHER way after hot-reload (frame %d)" % frame)
-
-	# Auto-restart off (real editor panel, checkbox unchecked): the edit
-	# is NOT picked up - the binding keeps its script id and text.
+	# Auto-restart off: edits are not applied at all.
 	var attached_now: int = runner.binding.get("script_id")
 	var editor: CanvasLayer = load("res://ui/editor_panel.tscn").instantiate()
 	root.add_child(editor)
@@ -235,8 +261,31 @@ func _run_stop_checks() -> void:
 	)
 	editor.queue_free()
 
+	# Fail paths: unbound sim guard and a non-compiling Run.
+	files.write(probe, "if then
+")
+	check(runner.run_file(probe) == -1, "run of a broken file -> -1")
+	check(runner.binding.is_empty(), "failed run leaves no binding")
+	var orphan = load("res://scripts/runner.gd").new()
+	root.add_child(orphan)
+	orphan.bind_sim(Node.new())
+	check(orphan.run_file(probe) == -1, "run without a simulation -> -1")
+	orphan.queue_free()
+
+	# Read limit is symmetric: a >256 KiB file reads as an error.
+	var big := "x".repeat(300 * 1024)
+	var fa := FileAccess.open(
+		ScriptFiles.dir_path().path_join("smoke_big_probe.lua"), FileAccess.WRITE
+	)
+	fa.store_string(big)
+	fa.close()
+	var res: Dictionary = files.read_checked("smoke_big_probe.lua")
+	check(res.get("err") != OK, "oversized file read reports an error")
+	files.remove("smoke_big_probe.lua")
+
 	files.remove(probe)
 	sim.queue_free()
+	console.queue_free()
 	runner.queue_free()
 
 
@@ -263,8 +312,6 @@ func _console_panel_checks() -> void:
 			return panel.get_log_text().contains("[tick 0] rover 1: console hi")
 	)
 	check(frame >= 0, "print line rendered in the panel")
-	print("DBG log text: ", panel.get_log_text().replace("
-", " | "))
 	var count: int = panel.get_log_text().count("console hi")
 	check(count == 1, "exactly one console hi (no double subscription), got %d" % count)
 

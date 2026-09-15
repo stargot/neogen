@@ -2,18 +2,22 @@
 #
 # Semantics (documented decisions):
 #   - Rover selection is MVP-simple: the first (lowest-id) rover.
-#   - Run = stop+detach the previously bound script, then attach fresh
-#     (a new script id per run; restart_script's keep-id semantics is not
-#     used - the editor cares about the file, not the id).
-#   - Stop = stop_script on the bound id, but the FILE binding survives:
-#     hot-reload keeps working after a manual Stop.
-#   - Hot-reload: a 1s poll (SceneTree timer; tests call check_now()
-#     directly) re-reads the bound file; on a text change it stops+detaches
-#     the old script and re-attaches - but only when the editor's
-#     auto-restart checkbox is on (default). Files without a binding are
-#     the editor panel's business, not the runner's.
-#   - A broken edit stops the old script and fails to attach: the binding
-#     is cleared and a warning logged (no silent zombie).
+#   - Run saves the editor buffer first (IDE convention), then stop+detach
+#     the previously bound script and attach fresh (a new script id per
+#     run; the editor cares about the file, not the id).
+#   - Stop = stop_script + clear the rover's command queue: commands
+#     belong to the rover (core contract), so a Finished-but-driving
+#     script would otherwise keep moving it. The file binding survives.
+#   - Hot-reload is ATTACH-FIRST (review #1): compile the new text; only
+#     on success stop+detach the old script. On failure the binding keeps
+#     the previous text (the next poll retries) and the player sees a
+#     line in the console - a broken auto-save must never freeze the
+#     running script silently. Host events reach the console through
+#     ConsolePanel.append_host_line (a direct method call, minimal
+#     coupling - the log_line signal is for script output only).
+#   - Hot-reload polls every second (SceneTree timer; tests call
+#     check_now() directly) and only when the editor's auto-restart
+#     checkbox is on.
 extends Node
 
 const ScriptFiles = preload("res://scripts/script_files.gd")
@@ -22,6 +26,7 @@ const POLL_INTERVAL := 1.0
 var files := ScriptFiles.new()
 var _sim = null
 var _editor = null
+var _console = null
 
 ## Current Run binding: {file: String, rover: int, script_id: int, text: String}.
 var binding: Dictionary = {}
@@ -50,23 +55,24 @@ func _poll_loop() -> void:
 
 ## Run the given file on the first rover. Returns the script id or -1.
 func run_file(file_name: String) -> int:
-	if _sim == null:
-		push_warning("Neogen runner: no SimNode bound")
+	if _sim == null or not _sim.has_method("get_rover_ids"):
+		_host_line("run failed: no simulation bound")
 		return -1
 	var rover_ids: PackedInt64Array = _sim.get_rover_ids()
 	if rover_ids.is_empty():
-		push_warning("Neogen runner: no rovers in the world")
+		_host_line("run failed: no rovers in the world")
 		return -1
+	var res: Dictionary = files.read_checked(file_name)
+	if res.get("err") != OK:
+		_host_line("run failed: cannot read %s (%s)" % [file_name, error_string(res.get("err"))])
+		return -1
+	var text: String = res.get("text")
 	var rover: int = rover_ids[0]
-	var text := files.read(file_name)
-	if text == "" and not files.valid_name(file_name):
-		push_warning("Neogen runner: bad file name %s" % file_name)
-		return -1
 	_stop_bound()
 	var script_id: int = _sim.attach_script(rover, text)
 	if script_id < 0:
 		binding = {}
-		push_warning("Neogen runner: attach failed for %s" % file_name)
+		_host_line("run failed: %s does not compile, nothing is running" % file_name)
 		return -1
 	binding = {"file": file_name, "rover": rover, "script_id": script_id, "text": text}
 	return script_id
@@ -85,26 +91,31 @@ func stop() -> bool:
 
 
 ## One hot-reload poll: re-read the bound file, reload on change (when the
-## editor's auto-restart is on). Public for tests.
+## editor's auto-restart is on). ATTACH-FIRST - see the header. Public
+## for tests.
 func check_now() -> void:
 	if _sim == null or binding.is_empty():
 		return
 	if _editor != null and not _editor.is_auto_restart():
 		return
 	var file_name: String = binding.get("file")
-	var text := files.read(file_name)
-	if text == "" or text == binding.get("text"):
+	var res: Dictionary = files.read_checked(file_name)
+	if res.get("err") != OK:
+		return  # real read error (e.g. vanished file): skip, retry next poll
+	var text: String = res.get("text")
+	if text == binding.get("text"):
+		return
+	var rover: int = binding.get("rover")
+	var new_id: int = _sim.attach_script(rover, text)
+	if new_id < 0:
+		# Keep the old script running and the binding on the old text;
+		# the next poll retries, the player sees why.
+		_host_line(
+			"hot-reload failed for %s: keeping previous version" % file_name
+		)
 		return
 	_stop_bound()
-	var rover: int = binding.get("rover")
-	var script_id: int = _sim.attach_script(rover, text)
-	if script_id < 0:
-		push_warning(
-			"Neogen runner: hot-reload attach failed for %s (broken edit?)" % file_name
-		)
-		binding = {}
-		return
-	binding = {"file": file_name, "rover": rover, "script_id": script_id, "text": text}
+	binding = {"file": file_name, "rover": rover, "script_id": new_id, "text": text}
 
 
 func _stop_bound() -> void:
@@ -115,3 +126,13 @@ func _stop_bound() -> void:
 	_sim.stop_script(old_id)
 	_sim.detach_script(old_id)
 	_sim.clear_rover_commands(rover)
+
+
+## Host-side line into the game console (direct method call; the log_line
+## signal is script output only - see the header).
+func _host_line(text: String) -> void:
+	push_warning("Neogen runner: %s" % text)
+	if _console == null:
+		_console = get_node_or_null("../ConsolePanel")
+	if _console != null and _console.has_method("append_host_line"):
+		_console.append_host_line(text)

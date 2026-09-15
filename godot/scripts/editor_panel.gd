@@ -145,6 +145,9 @@ func _on_run_pressed() -> void:
 	if runner == null:
 		_set_status("run: no Runner node at ../Runner")
 		return
+	# IDE convention (review #5): save the buffer before running, so the
+	# run always executes what the player sees in the editor.
+	save_current()
 	var script_id: int = runner.run_file(_current_file)
 	if script_id >= 0:
 		_set_status("run: %s (script %d)" % [_current_file, script_id])
