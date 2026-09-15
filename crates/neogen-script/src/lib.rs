@@ -399,6 +399,25 @@ impl ScriptHost {
             .map(|r| r.position())
     }
 
+    /// A rover's effective speed (cruise while driving, 0 when parked;
+    /// backlog 4.2).
+    pub fn rover_speed(&self, rover: RoverId) -> Option<f64> {
+        self.context
+            .borrow()
+            .world()
+            .rover(rover)
+            .map(|r| r.effective_speed())
+    }
+
+    /// A rover's heading (approximately unit direction vector).
+    pub fn rover_heading(&self, rover: RoverId) -> Option<Vec2> {
+        self.context
+            .borrow()
+            .world()
+            .rover(rover)
+            .map(|r| r.heading())
+    }
+
     /// Number of commands queued for a rover.
     pub fn rover_queue_len(&self, rover: RoverId) -> Option<usize> {
         self.context

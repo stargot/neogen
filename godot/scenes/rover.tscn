@@ -1,6 +1,31 @@
-[gd_scene format=3]
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/rover_visual.gd" id="1_visual"]
+
+[sub_resource type="Gradient" id="Gradient_trail"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.93, 0.73, 0.35, 0, 0.93, 0.73, 0.35, 0.45)
 
 [node name="Rover" type="RoverNode"]
 
 rover_id = 1
 sim_path = NodePath("../Sim")
+
+[node name="Body" type="Node2D" parent="."]
+script = ExtResource("1_visual")
+
+[node name="Hull" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(-0.42, -0.3, 0.18, -0.3, 0.42, 0, 0.18, 0.3, -0.42, 0.3)
+color = Color(0.93, 0.73, 0.35, 1)
+
+[node name="Beacon" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(0.05, -0.07, 0.28, 0, 0.05, 0.07)
+color = Color(0.98, 0.94, 0.78, 1)
+
+[node name="Trail" type="Line2D" parent="."]
+top_level = true
+width = 0.12
+joint_mode = 2
+begin_cap_mode = 2
+end_cap_mode = 2
+gradient = SubResource("Gradient_trail")

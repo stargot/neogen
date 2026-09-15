@@ -59,11 +59,44 @@ func _initialize() -> void:
 
 	sim.queue_free()
 	sim2.queue_free()
+	_speed_heading_checks()
 	_log_bridge_checks()
 	# The mirror checks need a live tree (physics frames); suspending
 	# _initialize itself with await breaks the tree setup, so run the
 	# coroutine deferred instead.
 	_rover_mirror_checks.call_deferred()
+
+
+func _speed_heading_checks() -> void:
+	# Backlog 4.2: effective-speed and heading getters stay consistent.
+	var sim := SimNode.new()
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+
+	check(sim.get_rover_speed(id) == 0.0, "parked rover speed is 0")
+	var parked_heading: Vector2 = sim.get_rover_heading(id)
+	check(
+		absf(parked_heading.length() - 1.0) < 0.001,
+		"parked heading is a unit vector, got %s" % parked_heading
+	)
+
+	sim.debug_move_rover(id, 9.0, 5.0)
+	sim.step_ticks(1)
+	check(sim.get_rover_speed(id) == 2.0, "moving at default cruise 2.0")
+	var pos: Vector2 = sim.get_rover_position(id)
+	var heading: Vector2 = sim.get_rover_heading(id)
+	var to_target := (Vector2(9.0, -5.0) - pos).normalized()
+	check(
+		heading.dot(to_target) > 0.99,
+		"heading points at the target while driving: %s vs %s" % [heading, to_target]
+	)
+
+	sim.step_ticks(100)
+	check(sim.get_rover_speed(id) == 0.0, "speed back to 0 after arrival")
+
+	check(sim.get_rover_speed(999) == -1.0, "unknown rover speed -> -1")
+	check(sim.get_rover_heading(999) == Vector2.ZERO, "unknown rover heading -> ZERO")
+	sim.queue_free()
 
 
 func _log_bridge_checks() -> void:

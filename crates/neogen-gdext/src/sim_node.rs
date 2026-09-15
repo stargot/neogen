@@ -111,6 +111,24 @@ impl SimNode {
         (self.accumulator / TICK_DT).clamp(0.0, 1.0) as f32
     }
 
+    /// Rover's effective speed: cruise speed while driving, 0 when
+    /// parked (backlog 4.2). -1 for unknown rovers.
+    #[func]
+    fn get_rover_speed(&mut self, id: i64) -> f64 {
+        self.ensure_host()
+            .and_then(|host| host.rover_speed(RoverId::from_raw(id as u32)))
+            .unwrap_or(-1.0)
+    }
+
+    /// Rover's heading in Godot coordinates (approximately unit vector;
+    /// ZERO for unknown rovers).
+    #[func]
+    fn get_rover_heading(&mut self, id: i64) -> Vector2 {
+        self.ensure_host()
+            .and_then(|host| host.rover_heading(RoverId::from_raw(id as u32)))
+            .map_or(Vector2::ZERO, coords::to_godot)
+    }
+
     /// Rover ids present in the world, ascending.
     #[func]
     pub(crate) fn get_rover_ids(&mut self) -> PackedInt64Array {

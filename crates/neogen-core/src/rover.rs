@@ -34,14 +34,33 @@ pub const DEFAULT_CRUISE_SPEED: f64 = 2.0;
 /// to drain its buffer.
 pub const MAX_SCAN_BUFFER: usize = 16;
 
-/// Effective cruise speed for this tick (override or factory default).
-/// Any non-positive value — `0.0` by convention, a negative only via
-/// invalid input (see the `speed` field docs) — selects the default.
-fn cruise_speed(rover: &Rover) -> f64 {
-    if rover.speed > 0.0 {
-        rover.speed
-    } else {
-        DEFAULT_CRUISE_SPEED
+impl Rover {
+    /// Effective cruise speed for this tick (override or factory
+    /// default). Any non-positive value — `0.0` by convention, a negative
+    /// only via invalid input (see the `speed` field docs) — selects the
+    /// default.
+    pub fn cruise_speed(&self) -> f64 {
+        if self.speed > 0.0 {
+            self.speed
+        } else {
+            DEFAULT_CRUISE_SPEED
+        }
+    }
+
+    /// Whether the rover is currently driving: the front command is a
+    /// MoveTo that has not landed yet.
+    pub fn is_moving(&self) -> bool {
+        matches!(self.commands.front(), Some(Command::MoveTo { .. }))
+    }
+
+    /// Speed the rover actually covers ground with this tick (backlog
+    /// 4.2, visual mirror): cruise speed while driving, 0 when parked.
+    pub fn effective_speed(&self) -> f64 {
+        if self.is_moving() {
+            self.cruise_speed()
+        } else {
+            0.0
+        }
     }
 }
 
@@ -66,7 +85,7 @@ pub(crate) fn step_rover(rover: &mut Rover, tick: u64) {
 fn step_move_to(rover: &mut Rover, target: Vec2) -> bool {
     let delta = target - rover.position;
     let distance = delta.length();
-    let speed = cruise_speed(rover);
+    let speed = rover.cruise_speed();
     if distance <= speed {
         // Final tick: land exactly on the target — never overshoot, so no
         // oscillation around the goal.
@@ -180,5 +199,57 @@ mod tests {
         assert_eq!(result.radius, 9.0);
         assert!(result.points.is_empty());
         assert!(rover.commands.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod moving_tests {
+    use super::*;
+    use crate::world::World;
+    use crate::{Command, RoverId};
+
+    #[test]
+    fn effective_speed_follows_the_command_queue() {
+        let mut world = World::new(3);
+        let id = world.rovers().next().expect("rover").id();
+        let rover = world.rover(id).expect("rover");
+        assert!(!rover.is_moving());
+        assert_eq!(rover.effective_speed(), 0.0);
+
+        world
+            .push_commands(
+                id,
+                [Command::MoveTo {
+                    target: Vec2::new(9.0, 9.0),
+                }],
+            )
+            .expect("valid");
+        let rover = world.rover(id).expect("rover");
+        assert!(rover.is_moving());
+        assert_eq!(rover.effective_speed(), DEFAULT_CRUISE_SPEED);
+    }
+
+    #[test]
+    fn cruise_override_wins_while_moving() {
+        let mut world = World::new(5);
+        let id = world.rovers().next().expect("rover").id();
+        world.set_rover_speed(id, 3.5).expect("valid");
+        world
+            .push_commands(
+                id,
+                [Command::MoveTo {
+                    target: Vec2::new(9.0, 0.0),
+                }],
+            )
+            .expect("valid");
+        let rover = world.rover(id).expect("rover");
+        assert_eq!(rover.cruise_speed(), 3.5);
+        assert_eq!(rover.effective_speed(), 3.5);
+    }
+
+    #[test]
+    fn unknown_rover_helpers_stay_out() {
+        // The helpers live on Rover; there is no world-level lookup here.
+        let _ = RoverId::from_raw(1);
     }
 }
