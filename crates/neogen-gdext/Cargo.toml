@@ -1,0 +1,14 @@
+[package]
+name = "neogen-gdext"
+version = "0.1.0"
+edition = "2024"
+description = "GDExtension bridge between Godot and the Neogen simulation core."
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Exact pin + explicit Godot 4.7 API level: dependency/engine changes are
+# a user gate (see backlog conventions and README «Версии»).
+godot = { version = "=0.5.5", features = ["api-4-7"] }

@@ -11,3 +11,7 @@ export.cfg
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# GDExtension build artifacts (godot/bin/ ships only .gitkeep)
+godot/bin/*
+!godot/bin/.gitkeep

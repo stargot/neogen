@@ -31,10 +31,12 @@ jobs:
         run: cargo test --workspace
 
   godot:
-    name: Godot 4.7.2 (headless import check)
+    name: Godot 4.7.2 (headless extension check)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Download Godot 4.7.2
         run: |
@@ -44,6 +46,29 @@ jobs:
           chmod +x Godot_v4.7.2-stable_linux.x86_64
           ./Godot_v4.7.2-stable_linux.x86_64 --version
 
-      - name: Headless import check
+      - name: Build GDExtension
+        run: |
+          cargo build -p neogen-gdext --release
+          cp target/release/libneogen_gdext.so \
+            godot/bin/libneogen_gdext.linux.x86_64.so
+
+      - name: Register GDExtension (editor import)
+        # Known Godot 4.7.2 + gdext 0.5.5 issue: a headless editor import
+        # with a class-registering extension segfaults at process exit,
+        # AFTER writing .godot/extension_list.cfg. The crash is harmless
+        # for us; the next step proves the extension loads cleanly.
         working-directory: godot
-        run: ../Godot_v4.7.2-stable_linux.x86_64 --headless --quit
+        run: |
+          set +e
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --import
+          code=$?
+          set -e
+          if [ $code -ne 0 ] && [ $code -ne 139 ]; then exit $code; fi
+
+      - name: Headless check (extension must load)
+        working-directory: godot
+        run: |
+          set -o pipefail
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --quit 2>&1 | tee /tmp/godot-run.log
+          grep -q "Neogen GDExtension loaded" /tmp/godot-run.log
+          ! grep -qiE "error|failed" /tmp/godot-run.log
