@@ -125,3 +125,72 @@ fn the_globals_table_itself_is_stripped() {
         EvalValue::String("nil".to_string())
     );
 }
+
+// ---- FIX-раунд фазы 2: #1 BLOCKER, #2 MAJOR ----
+
+#[test]
+fn script_coroutines_are_removed() {
+    // coroutine.create/wrap/resume/close are a budget escape: the count
+    // hook is per-thread, so a coroutine spawned *inside* a script runs
+    // unhitched. Scheduling belongs to the host.
+    let runtime = fresh();
+    for name in ["create", "wrap", "resume", "close"] {
+        let value = runtime
+            .eval(&format!("return type(coroutine.{name})"))
+            .expect("evals");
+        assert_eq!(value, EvalValue::String("nil".to_string()), "{name}");
+    }
+    // What stays: scripts pause themselves via yield and may inspect.
+    for name in ["yield", "status", "isyieldable", "running"] {
+        let value = runtime
+            .eval(&format!("return type(coroutine.{name})"))
+            .expect("evals");
+        assert_eq!(
+            value,
+            EvalValue::String("function".to_string()),
+            "{name} must stay"
+        );
+    }
+}
+
+#[test]
+fn wrapped_infinite_loop_is_now_just_an_error() {
+    // Regression for the BLOCKER: on the old code this would run a
+    // hookless coroutine loop (hang); now `wrap` is nil.
+    let runtime = fresh();
+    assert!(
+        runtime
+            .eval("local f = coroutine.wrap(function() while true do end end) return f()")
+            .is_err()
+    );
+}
+
+#[test]
+fn math_random_is_removed_but_math_lives() {
+    // Lua 5.4 seeds math.random from wall time and state addresses —
+    // non-deterministic by construction; removed from the sandbox.
+    let runtime = fresh();
+    for name in ["random", "randomseed"] {
+        let value = runtime
+            .eval(&format!("return type(math.{name})"))
+            .expect("evals");
+        assert_eq!(value, EvalValue::String("nil".to_string()), "{name}");
+    }
+    assert!(runtime.eval("return math.sin(0)").is_ok());
+    assert!(runtime.eval("return math.max(1, 2)").is_ok());
+}
+
+#[test]
+fn two_runtimes_agree_on_every_eval() {
+    // Determinism smoke the raw randomness removal enables: identical
+    // runtimes produce identical results.
+    let a = fresh();
+    let b = fresh();
+    for chunk in ["return math.sin(1)", "return ('x'):rep(16)", "return 2^53"] {
+        assert_eq!(
+            a.eval(chunk).expect("evals"),
+            b.eval(chunk).expect("evals"),
+            "{chunk}"
+        );
+    }
+}

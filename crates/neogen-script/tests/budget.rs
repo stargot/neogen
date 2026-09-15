@@ -6,8 +6,9 @@ use neogen_script::{
 
 fn tight_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        instructions_per_tick: 4_000, // 8 intervals of 512
+        instructions_per_tick: 4_000, // ~8 intervals of 512
         hook_interval: 512,
+        ..RuntimeConfig::default()
     })
     .expect("runtime creates")
 }
@@ -181,3 +182,37 @@ fn default_budget_matches_backlog() {
 
 /// Deterministic spinner used by the determinism test.
 const SPIN: &str = "local x = 0 while true do x = x + 1 end";
+
+// ---- FIX-раунд фазы 2: #3 memory limit ----
+
+#[test]
+fn giant_c_function_hits_memory_limit_not_oom() {
+    // string.rep is a C function: no instruction hook inside it, but the
+    // allocator limit stops it. 512 MiB request against the 32 MiB cap.
+    let mut runtime = Runtime::new(RuntimeConfig::default()).expect("runtime");
+    let mut script = runtime
+        .create_script("return string.rep('x', 512 * 1024 * 1024)")
+        .expect("compiles");
+    match script.resume_tick() {
+        Err(ScriptError::Runtime { message, .. }) => {
+            assert!(
+                message.to_lowercase().contains("memory"),
+                "expected a memory error, got: {message}"
+            );
+        }
+        other => panic!("expected Runtime error, got {other:?}"),
+    }
+    assert!(script.is_finished());
+}
+
+#[test]
+fn small_allocations_still_work() {
+    let mut runtime = Runtime::new(RuntimeConfig::default()).expect("runtime");
+    let mut script = runtime
+        .create_script("return string.rep('x', 1024)")
+        .expect("compiles");
+    assert_eq!(
+        script.resume_tick().expect("runs"),
+        TickOutcome::Completed(EvalValue::String("x".repeat(1024)))
+    );
+}

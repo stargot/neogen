@@ -16,6 +16,7 @@ fn tight_host(seed: u64) -> ScriptHost {
         RuntimeConfig {
             instructions_per_tick: 4_000,
             hook_interval: 512,
+            ..RuntimeConfig::default()
         },
     )
     .expect("host creates")

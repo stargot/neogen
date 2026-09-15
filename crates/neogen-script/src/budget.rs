@@ -42,13 +42,23 @@ pub const DEFAULT_INSTRUCTIONS_PER_TICK: u32 = 100_000;
 /// small enough for tight budgets, large enough to keep the overhead low.
 pub const DEFAULT_HOOK_INTERVAL: u32 = 512;
 
+/// Default per-state Lua memory limit (32 MiB). C functions
+/// (`string.rep`, table growth, …) run outside the instruction hook;
+/// the allocator limit is what stops them from OOM-ing the process.
+/// Residual risk: pure CPU time in pathological C loops is bounded only
+/// by the limit + OS scheduling, not by instruction budget.
+pub const DEFAULT_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+
 /// Runtime tuning knobs (passed to `Runtime::new`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeConfig {
     /// Instructions a script may execute per tick before suspension.
     pub instructions_per_tick: u32,
     /// How often (in VM instructions) the counting hook fires.
+    /// Clamped to at least 1 at use sites (`hook_interval.max(1)`).
     pub hook_interval: u32,
+    /// Lua-state memory limit in bytes (allocator guard; 0 = unlimited).
+    pub memory_limit: usize,
 }
 
 impl Default for RuntimeConfig {
@@ -56,13 +66,20 @@ impl Default for RuntimeConfig {
         Self {
             instructions_per_tick: DEFAULT_INSTRUCTIONS_PER_TICK,
             hook_interval: DEFAULT_HOOK_INTERVAL,
+            memory_limit: DEFAULT_MEMORY_LIMIT,
         }
     }
 }
 
 impl RuntimeConfig {
-    /// Intervals the hook may consume per tick (at least one, so tiny
-    /// budgets still stop the script instead of running unchecked).
+    /// Intervals the hook may consume per tick. Formula notes
+    /// (FIX-раунд фазы 2 #8): the hook fires *after* every
+    /// `hook_interval` instructions, and the budget-yield happens on the
+    /// firing *after* the allowance is spent — so the reported `consumed`
+    /// is `(intervals + 1) * hook_interval` and the script overshoots the
+    /// nominal budget by up to `hook_interval - 1` instructions. When
+    /// `instructions_per_tick < hook_interval` the allowance floors to a
+    /// single interval: `consumed = 2 * hook_interval`.
     fn intervals_per_tick(&self) -> u32 {
         (self.instructions_per_tick / self.hook_interval.max(1)).max(1)
     }

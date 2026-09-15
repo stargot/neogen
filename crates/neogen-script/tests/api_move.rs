@@ -2,7 +2,8 @@
 
 use neogen_core::{RoverId, Vec2, World};
 use neogen_script::{
-    ACT_KINDS, EvalValue, RuntimeConfig, ScriptError, ScriptHost, TickOutcome, WorldContext,
+    ACT_KINDS, EvalValue, RuntimeConfig, ScriptError, ScriptHost, ScriptState, TickOutcome,
+    WorldContext,
 };
 
 fn host_with_world(seed: u64) -> ScriptHost {
@@ -239,4 +240,34 @@ fn world_context_logs_and_scans_wired() {
     assert!(context.latest_scan(rover).is_some());
     assert_eq!(context.current_tick(), 5);
     assert!(context.logs().is_empty());
+}
+
+// ---- FIX-раунд фазы 2: #4 cross-script table poisoning ----
+
+#[test]
+fn poisoned_library_table_does_not_reach_neighbours() {
+    let mut host = host_with_world(31);
+    let rover = sole_rover(&host);
+    let a = host
+        .attach_script(rover, "string.format = nil math.sin = 42")
+        .expect("A attaches");
+    let b = host
+        .attach_script(
+            rover,
+            "return type(string.format) == 'function' and type(math.sin) == 'function'",
+        )
+        .expect("B attaches");
+    host.step_world();
+    assert_eq!(host.script_state(a), Some(ScriptState::Finished));
+    assert_eq!(
+        host.script_state(b),
+        Some(ScriptState::Finished),
+        "B must finish - neighbour's poisoning broke it"
+    );
+    // B's verdict: the originals survived (check via a fresh probe script).
+    let c = host
+        .attach_script(rover, "return string.format('%d', 7)")
+        .expect("C attaches");
+    host.step_world();
+    assert_eq!(host.script_state(c), Some(ScriptState::Finished));
 }

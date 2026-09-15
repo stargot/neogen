@@ -29,12 +29,17 @@ use neogen_core::{RoverId, Vec2};
 
 pub use api::{ACT_KINDS, ScriptContext, WorldContext};
 pub use budget::{
-    DEFAULT_HOOK_INTERVAL, DEFAULT_INSTRUCTIONS_PER_TICK, RuntimeConfig, Script, TickOutcome,
+    DEFAULT_HOOK_INTERVAL, DEFAULT_INSTRUCTIONS_PER_TICK, DEFAULT_MEMORY_LIMIT, RuntimeConfig,
+    Script, TickOutcome,
 };
 pub use errors::{MAX_ERROR_TEXT, ScriptError};
 pub use lifecycle::ScriptState;
 pub use logbuffer::{LogBuffer, LogEntry, MAX_LOG_BUFFER};
 pub use script_store::{FailedFile, ScanReport, ScriptStore, StoreError, StoredScript};
+
+/// Library tables that each script env receives as its own copy (see
+/// `ScriptHost::build_script`).
+const LIB_TABLES: &[&str] = &["math", "string", "table", "coroutine", "utf8"];
 
 /// Result of evaluating a Lua chunk, mapped to a small crate-owned enum so
 /// the public API does not leak `mlua` types (the bridge should not have
@@ -83,6 +88,10 @@ impl Runtime {
         let lua = Lua::new_with(sandbox::safe_libs(), LuaOptions::default())
             .map_err(|error| ScriptError::runtime(0, 0, &error))?;
         sandbox::install(&lua)?;
+        if config.memory_limit > 0 {
+            lua.set_memory_limit(config.memory_limit)
+                .map_err(|error| ScriptError::runtime(0, 0, &error))?;
+        }
         Ok(Self {
             lua,
             config,
@@ -273,6 +282,20 @@ impl ScriptHost {
             .for_each(|key: mlua::LuaString, value: mlua::Value| {
                 let name = key.to_string_lossy();
                 if name == "_G" || name == "_VERSION" {
+                    return Ok(());
+                }
+                if let mlua::Value::Table(table) = &value
+                    && LIB_TABLES.contains(&name.as_ref())
+                {
+                    // Per-script copy of a library table (FIX-раунд
+                    // фазы 2 #4): a script poisoning `string.format`
+                    // must not affect its neighbours. Functions are
+                    // shared by value-reference — tables are the only
+                    // mutable surface.
+                    let copy = lua.create_table()?;
+                    table.for_each(|k: mlua::Value, v: mlua::Value| copy.raw_set(k, v))?;
+                    env.set(key, copy)?;
+                    copied += 1;
                     return Ok(());
                 }
                 env.set(key, value)?;
