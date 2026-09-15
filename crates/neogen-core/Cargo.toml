@@ -1,0 +1,6 @@
+[package]
+name = "neogen-core"
+version = "0.1.0"
+edition = "2024"
+description = "Deterministic, dependency-free simulation core for Neogen."
+publish = false
