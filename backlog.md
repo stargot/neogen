@@ -63,7 +63,7 @@
   - DoD: `cargo test -p neogen-core --test golden_determinism` зелёный; комментарий в README крейта как обновлять эталоны (env-флаг).
   - Зависит от: 1.2.
 
-- [ ] **1.4. Снапшот и восстановление состояния** — M, риск: низкий
+- [x] **1.4. Снапшот и восстановление состояния** — M, риск: низкий ✅ `8d8972b`
   - Файлы: `src/snapshot.rs`, `tests/snapshot_roundtrip.rs`.
   - Шаги: `to_bytes`/`from_bytes` (свой побайтовый формат + поле версии схемы); roundtrip-тест; тест «снапшот на тике K → продолжение тиков → тот же hash, что у непрерывного прогона».
   - DoD: `cargo test -p neogen-core --test snapshot_roundtrip` зелёный.
