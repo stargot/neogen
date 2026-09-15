@@ -95,7 +95,7 @@
   - DoD: `cargo test -p neogen-script` зелёный; vendored-сборка Lua проходит в CI.
   - Зависит от: 0.2 (workspace).
 
-- [ ] **2.2. Песочница: окружение без os/io/load** — M, риск: средний
+- [x] **2.2. Песочница: окружение без os/io/load** — M, риск: средний ✅ `bc19c54`
   - Файлы: `src/sandbox.rs`, `tests/sandbox.rs`.
   - Шаги: чистый `env` скрипта: из globals убрать `os`, `io`, `load`, `loadfile`, `dofile`, `require`, `collectgarbage` (или ограничить); доступ — только к API, который явно предоставим (фаза 2.4).
   - DoD: тесты: обращение к `os.execute` / `io.open` / `load` → ошибка скрипта; сам `Runtime` после этого продолжает работать.
