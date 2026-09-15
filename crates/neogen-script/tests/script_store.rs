@@ -180,3 +180,30 @@ fn world_context_direct_use_is_unaffected() {
     let context = WorldContext::new(World::new(1));
     assert_eq!(context.world().tick(), 0);
 }
+
+// ---- FIX-раунд фазы 2 B: #6 deterministic reports ----
+
+#[test]
+fn reports_are_sorted_by_name() {
+    let dir = TempDir::new("sorted");
+    dir.write("c.lua", "return 3");
+    dir.write("a.lua", "return 1");
+    dir.write("b.lua", "return 2");
+    let mut store = ScriptStore::scan(dir.path()).expect("scan");
+    assert_eq!(
+        store.last_report().added,
+        vec![
+            "a.lua".to_string(),
+            "b.lua".to_string(),
+            "c.lua".to_string()
+        ]
+    );
+
+    dir.write("a.lua", "return 11");
+    dir.remove("b.lua");
+    dir.write("d.lua", "return 4");
+    let report = store.refresh().expect("refresh");
+    assert_eq!(report.updated, vec!["a.lua".to_string()]);
+    assert_eq!(report.removed, vec!["b.lua".to_string()]);
+    assert_eq!(report.added, vec!["d.lua".to_string()]);
+}

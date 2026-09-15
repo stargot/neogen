@@ -216,3 +216,35 @@ fn small_allocations_still_work() {
         TickOutcome::Completed(EvalValue::String("x".repeat(1024)))
     );
 }
+
+// ---- FIX-раунд фазы 2 B: #8 config normalization + formula docs ----
+
+#[test]
+fn config_normalization_clamps_degenerate_values() {
+    let config = RuntimeConfig {
+        instructions_per_tick: 0,
+        hook_interval: 0,
+        memory_limit: 1024,
+    }
+    .normalized();
+    assert_eq!(config.instructions_per_tick, 1);
+    assert_eq!(config.hook_interval, 1);
+    assert_eq!(config.memory_limit, 1024);
+
+    // Sub-interval budget: allowance floors to one interval, consumed is
+    // 2 * hook_interval (documented in RuntimeConfig::intervals_per_tick).
+    let tight = RuntimeConfig {
+        instructions_per_tick: 100,
+        hook_interval: 512,
+        ..RuntimeConfig::default()
+    }
+    .normalized();
+    let mut runtime = Runtime::new(tight).expect("runtime");
+    let mut script = runtime.create_script(SPIN).expect("compiles");
+    match script.resume_tick() {
+        Err(ScriptError::BudgetExceeded { consumed, .. }) => {
+            assert_eq!(consumed, 2 * 512);
+        }
+        other => panic!("expected BudgetExceeded, got {other:?}"),
+    }
+}

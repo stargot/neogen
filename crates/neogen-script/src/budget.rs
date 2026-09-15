@@ -28,7 +28,7 @@
 //! each other's globals today; 2.4 can give each script a private `_ENV`
 //! copy if isolation is needed.)
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use mlua::thread::ThreadStatus;
@@ -72,6 +72,17 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Normalized copy: clamps `hook_interval` and
+    /// `instructions_per_tick` to at least 1, so a misconfigured runtime
+    /// still budgets (a zero hook interval would never fire).
+    pub fn normalized(self) -> Self {
+        Self {
+            instructions_per_tick: self.instructions_per_tick.max(1),
+            hook_interval: self.hook_interval.max(1),
+            memory_limit: self.memory_limit,
+        }
+    }
+
     /// Intervals the hook may consume per tick. Formula notes
     /// (FIX-раунд фазы 2 #8): the hook fires *after* every
     /// `hook_interval` instructions, and the budget-yield happens on the
@@ -115,6 +126,9 @@ pub struct Script {
     budget: SharedBudget,
     config: RuntimeConfig,
     tick: u64,
+    /// Commands queued this tick (shared with the API closures; capped by
+    /// [`crate::MAX_COMMANDS_PER_TICK`], reset on every resume).
+    commands_used: crate::api::CommandCounter,
 }
 
 impl Script {
@@ -128,7 +142,9 @@ impl Script {
             .load(source)
             .into_function()
             .map_err(|error| ScriptError::compile(&error))?;
-        Self::spawn_function(lua, config, id, function)
+        // Pure-Lua scripts (no host API) have no command closures: the
+        // counter exists but stays unused.
+        Self::spawn_function(lua, config, id, function, Rc::new(Cell::new(0)))
     }
 
     /// Spawn from an already-built function (e.g. a chunk loaded with a
@@ -138,6 +154,7 @@ impl Script {
         config: RuntimeConfig,
         id: u32,
         function: mlua::Function,
+        commands_used: crate::api::CommandCounter,
     ) -> Result<Self, ScriptError> {
         let thread = lua
             .create_thread(function)
@@ -149,6 +166,7 @@ impl Script {
             budget,
             config,
             tick: 0,
+            commands_used,
         })
     }
 
@@ -178,12 +196,13 @@ impl Script {
     ///   is suspended, not killed: the next `resume_tick` continues it.
     /// - `Err(Lua(_))` — a real script error; the coroutine is dead.
     pub fn resume_tick(&mut self) -> Result<TickOutcome, ScriptError> {
-        // Re-arm the budget for this tick.
+        // Re-arm the budget and the per-tick command counter.
         {
             let mut budget = self.budget.borrow_mut();
             budget.intervals_left = self.config.intervals_per_tick();
             budget.exceeded = false;
         }
+        self.commands_used.set(0);
 
         self.tick = self.tick.saturating_add(1);
         let outcome = match self.thread.resume::<mlua::Value>(()) {

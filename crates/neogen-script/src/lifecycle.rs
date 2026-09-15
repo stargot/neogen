@@ -21,6 +21,10 @@ pub enum ScriptState {
     Finished,
     /// Died on a script error; stays down until a manual restart.
     Failed(ScriptError),
+    /// Stopped by the host (`stop_script`, phase 5.4 Run/Stop): the
+    /// coroutine is parked and never resumed again; only a manual restart
+    /// (with fresh source) revives the script id.
+    Stopped,
 }
 
 impl ScriptState {

@@ -35,7 +35,7 @@
 //! this; if the bridge ever needs its own context, it implements the same
 //! trait.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use mlua::{Lua, MultiValue, Table, Value};
@@ -47,6 +47,16 @@ use crate::logbuffer::{LogBuffer, LogEntry};
 /// Allowed `act` kinds (phase 8 will implement them; the list pins the
 /// contract now).
 pub const ACT_KINDS: &[&str] = &["plant", "drain"];
+
+/// Maximum commands (move/scan/act) one script may queue per resume
+/// (FIX-раунд фазы 2 #5): a spinner spamming `move` must not grow the
+/// rover queue without bound. Overflowing raises a Lua error (the script
+/// fails); scripts that need longer routes should spread them over ticks
+/// (`coroutine.yield`).
+pub const MAX_COMMANDS_PER_TICK: usize = 64;
+
+/// Per-script, per-tick command counter shared with the API closures.
+pub(crate) type CommandCounter = Rc<Cell<u32>>;
 
 /// What scripts may do to the world. See the module docs for the contract.
 pub trait ScriptContext {
@@ -130,14 +140,17 @@ pub(crate) fn install(
     context: Rc<RefCell<dyn ScriptContext>>,
     rover: RoverId,
     script_id: u32,
-) -> Result<(), ScriptError> {
+) -> Result<CommandCounter, ScriptError> {
+    let counter: CommandCounter = Rc::new(Cell::new(0));
     // mlua failures here are host-side setup problems, not script errors:
     // tick 0, the script's id.
     let fail = |error: mlua::Error| ScriptError::runtime(script_id, 0, &error);
     let move_ctx = context.clone();
+    let move_counter = Rc::clone(&counter);
     env.set(
         "move",
         lua.create_function(move |_lua, (x, y): (f64, f64)| {
+            tick_command_slot(&move_counter)?;
             let command = Command::MoveTo {
                 target: Vec2::new(x, y),
             };
@@ -148,9 +161,11 @@ pub(crate) fn install(
     .map_err(fail)?;
 
     let scan_ctx = context.clone();
+    let scan_counter = Rc::clone(&counter);
     env.set(
         "scan",
         lua.create_function(move |_lua, radius: f64| {
+            tick_command_slot(&scan_counter)?;
             let command = Command::Scan { radius };
             push_validated(&scan_ctx, rover, command)
         })
@@ -173,6 +188,7 @@ pub(crate) fn install(
     .map_err(fail)?;
 
     let act_ctx = context.clone();
+    let act_counter = Rc::clone(&counter);
     env.set(
         "act",
         lua.create_function(move |_lua, (kind, params): (String, Option<Table>)| {
@@ -185,6 +201,7 @@ pub(crate) fn install(
             // until phase 8.1 — see the module docs.
             let _ = params;
             // Wire-shape stub: phase 8 maps kinds to real commands.
+            tick_command_slot(&act_counter)?;
             push_validated(&act_ctx, rover, Command::Noop)
         })
         .map_err(fail)?,
@@ -210,6 +227,18 @@ pub(crate) fn install(
     )
     .map_err(fail)?;
 
+    Ok(counter)
+}
+
+/// Consume one command slot for this tick; overflow raises a Lua error.
+fn tick_command_slot(counter: &CommandCounter) -> Result<(), mlua::Error> {
+    let used = counter.get() + 1;
+    if used as usize > MAX_COMMANDS_PER_TICK {
+        return Err(mlua::Error::runtime(format!(
+            "command overflow: at most {MAX_COMMANDS_PER_TICK} commands per tick"
+        )));
+    }
+    counter.set(used);
     Ok(())
 }
 

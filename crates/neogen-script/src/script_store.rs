@@ -71,10 +71,17 @@ pub struct ScanReport {
 /// Store-level errors (per-file problems go to [`ScanReport::failed`]).
 #[derive(Debug)]
 pub enum StoreError {
-    /// The store directory does not exist (or is not a directory).
+    /// The store directory does not exist.
     DirectoryMissing {
         /// The path that was requested.
         path: PathBuf,
+    },
+    /// Reading the directory failed for another reason (permissions, …).
+    Io {
+        /// The path that was requested.
+        path: PathBuf,
+        /// The io error message.
+        message: String,
     },
 }
 
@@ -83,6 +90,13 @@ impl fmt::Display for StoreError {
         match self {
             Self::DirectoryMissing { path } => {
                 write!(f, "script directory does not exist: {}", path.display())
+            }
+            Self::Io { path, message } => {
+                write!(
+                    f,
+                    "cannot read script directory {}: {message}",
+                    path.display()
+                )
             }
         }
     }
@@ -130,12 +144,12 @@ impl ScriptStore {
         Ok(Self {
             dir,
             scripts,
-            last_report: ScanReport {
+            last_report: sorted(ScanReport {
                 added,
                 updated: Vec::new(),
                 removed: Vec::new(),
                 failed,
-            },
+            }),
         })
     }
 
@@ -189,6 +203,7 @@ impl ScriptStore {
         }
 
         self.scripts = fresh;
+        let report = sorted(report);
         self.last_report = report.clone();
         Ok(report)
     }
@@ -224,6 +239,17 @@ impl ScriptStore {
     }
 }
 
+/// Sort every list of a report by name: `read_dir` order is
+/// filesystem-dependent, reports must be deterministic (FIX-раунд фазы 2
+/// #6).
+fn sorted(mut report: ScanReport) -> ScanReport {
+    report.added.sort();
+    report.updated.sort();
+    report.removed.sort();
+    report.failed.sort_by(|a, b| a.name.cmp(&b.name));
+    report
+}
+
 /// One pass over the directory: load every regular `*.lua` file.
 /// Per-file problems become [`FailedFile`]s; a missing directory is a
 /// store-level error.
@@ -232,8 +258,9 @@ fn read_entries(dir: &Path) -> Result<(Vec<LoadedEntry>, Vec<FailedFile>), Store
         io::ErrorKind::NotFound => StoreError::DirectoryMissing {
             path: dir.to_path_buf(),
         },
-        _ => StoreError::DirectoryMissing {
+        kind => StoreError::Io {
             path: dir.to_path_buf(),
+            message: format!("{kind}: {error}"),
         },
     })?;
 

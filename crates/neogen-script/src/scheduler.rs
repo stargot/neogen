@@ -40,8 +40,7 @@ use crate::{ScriptContext as _, ScriptError, ScriptState, TickOutcome};
 pub(crate) struct ManagedScript {
     pub(crate) script: crate::Script,
     pub(crate) rover: neogen_core::RoverId,
-    /// Source text (kept for the future save system, backlog 9.x).
-    #[allow(dead_code)]
+    /// Source text (exposed via `script_source`; hot-reload 5.4, saves 9.x).
     pub(crate) source: String,
     pub(crate) state: ScriptState,
 }

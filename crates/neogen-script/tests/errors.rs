@@ -244,3 +244,100 @@ fn world_context_still_logs_plain_entries() {
     });
     assert_eq!(context.logs().snapshot().len(), 1);
 }
+
+// ---- FIX-раунд фазы 2 B: #5 command cap, #9 stop/detach/getters ----
+
+#[test]
+fn command_spam_hits_the_per_tick_cap() {
+    let mut host = host(37);
+    let rover = sole_rover(&host);
+    let id = host
+        .attach_script(rover, "while true do move(0, 0) end")
+        .expect("attaches");
+    host.step_world();
+
+    match host.script_state(id) {
+        Some(ScriptState::Failed(ScriptError::Runtime { message, .. })) => {
+            assert!(message.contains("command overflow"), "{message}");
+        }
+        other => panic!("expected Failed with overflow, got {other:?}"),
+    }
+    // The queue grew by at most the cap before the script died.
+    assert!(
+        host.rover_queue_len(rover).unwrap() <= neogen_script::MAX_COMMANDS_PER_TICK,
+        "queue grew unbounded"
+    );
+    // The world keeps ticking.
+    for _ in 0..5 {
+        host.step_world();
+    }
+    assert_eq!(host.world_tick(), 6);
+}
+
+#[test]
+fn stop_parks_a_script_until_restart() {
+    let mut host = tight_host(41);
+    let rover = sole_rover(&host);
+    let id = host
+        .attach_script(rover, "local x = 0 while true do x = x + 1 end")
+        .expect("attaches");
+    host.step_world();
+    // The pure spinner suspends on budget — alive, no commands queued.
+    assert_eq!(host.script_state(id), Some(ScriptState::SuspendedBudget));
+    assert!(host.stop_script(id));
+    assert_eq!(host.script_state(id), Some(ScriptState::Stopped));
+
+    // Stopped scripts are never resumed: tick on, state unchanged.
+    let queue_len = host.rover_queue_len(rover).unwrap();
+    for _ in 0..10 {
+        host.step_world();
+    }
+    assert_eq!(host.script_state(id), Some(ScriptState::Stopped));
+    assert!(host.rover_queue_len(rover).unwrap() <= queue_len);
+
+    // Revive via restart with fresh source.
+    host.restart_script(id, "print('revived')")
+        .expect("restarts");
+    assert_eq!(host.script_state(id), Some(ScriptState::Running));
+    host.step_world();
+    assert_eq!(host.script_state(id), Some(ScriptState::Finished));
+
+    // Stopping dead/unknown scripts is a no-op (false).
+    assert!(!host.stop_script(id), "Finished script cannot be stopped");
+    assert!(!host.stop_script(999));
+}
+
+#[test]
+fn detach_removes_the_script_entirely() {
+    let mut host = host(43);
+    let rover = sole_rover(&host);
+    let keeper = host
+        .attach_script(rover, "print('keeper') move(2, 2)")
+        .expect("attaches");
+    let doomed = host
+        .attach_script(rover, "while true do coroutine.yield() end")
+        .expect("attaches");
+    assert!(host.detach_script(doomed));
+    assert_eq!(host.script_state(doomed), None);
+    assert!(host.script_source(doomed).is_none());
+    assert!(!host.detach_script(doomed), "already detached");
+
+    // The survivor is unaffected and the world ticks on.
+    for _ in 0..30 {
+        host.step_world();
+    }
+    assert_eq!(host.script_state(keeper), Some(ScriptState::Finished));
+    assert_eq!(host.managed_ids(), vec![keeper]);
+}
+
+#[test]
+fn script_source_and_rover_getters() {
+    let mut host = host(47);
+    let rover = sole_rover(&host);
+    let source = "print('identity')";
+    let id = host.attach_script(rover, source).expect("attaches");
+    assert_eq!(host.script_source(id), Some(source));
+    assert_eq!(host.script_rover(id), Some(rover));
+    assert_eq!(host.script_source(999), None);
+    assert_eq!(host.script_rover(999), None);
+}

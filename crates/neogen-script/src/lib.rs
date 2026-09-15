@@ -27,7 +27,7 @@ use std::rc::Rc;
 use mlua::{Lua, LuaOptions};
 use neogen_core::{RoverId, Vec2};
 
-pub use api::{ACT_KINDS, ScriptContext, WorldContext};
+pub use api::{ACT_KINDS, MAX_COMMANDS_PER_TICK, ScriptContext, WorldContext};
 pub use budget::{
     DEFAULT_HOOK_INTERVAL, DEFAULT_INSTRUCTIONS_PER_TICK, DEFAULT_MEMORY_LIMIT, RuntimeConfig,
     Script, TickOutcome,
@@ -85,6 +85,7 @@ impl Runtime {
     /// Fallible on purpose: state creation and sandbox installation are
     /// part of the contract (2.1 reserved the `Result`).
     pub fn new(config: RuntimeConfig) -> Result<Self, ScriptError> {
+        let config = config.normalized();
         let lua = Lua::new_with(sandbox::safe_libs(), LuaOptions::default())
             .map_err(|error| ScriptError::runtime(0, 0, &error))?;
         sandbox::install(&lua)?;
@@ -124,10 +125,12 @@ impl Runtime {
 
     /// Evaluate a chunk and return its `return` value.
     ///
-    /// The raw escape hatch (tests, REPL-style experiments): runs on the
-    /// shared sandboxed globals with no script identity — errors carry
-    /// `script_id = 0` (ids start at 1). Player scripts run through
-    /// [`ScriptHost`] instead.
+    /// **Not for player input** (FIX-раунд фазы 2 #9): a raw internal
+    /// escape hatch for tests/diagnostics that runs on the shared
+    /// sandboxed globals with no script identity (`script_id = 0`),
+    /// no private env and no API. Player scripts always go through
+    /// [`ScriptHost`].
+    #[doc(hidden)]
     pub fn eval(&self, chunk: &str) -> Result<EvalValue, ScriptError> {
         let value = self
             .lua
@@ -257,6 +260,35 @@ impl ScriptHost {
         self.managed.get(&id).map(|m| m.state.clone())
     }
 
+    /// Stop an alive script (phase 5.4 Run/Stop): the coroutine is parked
+    /// forever ([`ScriptState::Stopped`]) — only `restart_script` revives
+    /// the id. Returns `false` for unknown or already dead scripts.
+    pub fn stop_script(&mut self, id: u32) -> bool {
+        match self.managed.get_mut(&id) {
+            Some(managed) if managed.state.is_alive() => {
+                managed.state = ScriptState::Stopped;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Remove a managed script entirely (its id disappears; the coroutine
+    /// is dropped). Returns `false` for unknown ids.
+    pub fn detach_script(&mut self, id: u32) -> bool {
+        self.managed.remove(&id).is_some()
+    }
+
+    /// Source text of a managed script (hot-reload 5.4, saves 9.x).
+    pub fn script_source(&self, id: u32) -> Option<&str> {
+        self.managed.get(&id).map(|m| m.source.as_str())
+    }
+
+    /// Rover a managed script is bound to.
+    pub fn script_rover(&self, id: u32) -> Option<RoverId> {
+        self.managed.get(&id).map(|m| m.rover)
+    }
+
     /// Ids of all managed scripts, ascending.
     pub fn managed_ids(&self) -> Vec<u32> {
         self.managed.keys().copied().collect()
@@ -312,14 +344,14 @@ impl ScriptHost {
         }
 
         let context: Rc<RefCell<dyn ScriptContext>> = Rc::clone(&self.context) as _;
-        api::install(lua, &env, context, rover, id)?;
+        let commands_used = api::install(lua, &env, context, rover, id)?;
 
         let function = lua
             .load(source)
             .set_environment(env)
             .into_function()
             .map_err(|error| ScriptError::compile(&error))?;
-        Script::spawn_function(lua, self.runtime.config, id, function)
+        Script::spawn_function(lua, self.runtime.config, id, function, commands_used)
     }
 
     /// Advance one simulation tick: resume every alive managed script in
