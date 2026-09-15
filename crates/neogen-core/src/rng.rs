@@ -59,6 +59,13 @@ impl Rng {
         Self { s }
     }
 
+    /// Snapshot of the four state words (for state hashing and the future
+    /// snapshot format). Read-only: mutating the words externally would
+    /// desync the stream.
+    pub fn state_words(&self) -> [u64; 4] {
+        self.s
+    }
+
     /// Next raw 64-bit value (xoshiro256\*\* step).
     pub fn next_u64(&mut self) -> u64 {
         let result = self.s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);

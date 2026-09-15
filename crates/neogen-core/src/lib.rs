@@ -7,6 +7,7 @@
 //! simulation stays deterministic, portable, and testable headless.
 
 pub mod generate;
+pub mod hash;
 pub mod ids;
 pub mod math;
 pub mod rng;
@@ -14,6 +15,7 @@ pub mod tick;
 pub mod world;
 
 pub use generate::{START_PAD_HALF_SIZE, generate_world};
+pub use hash::{Fnv1a, state_hash};
 pub use ids::{IdIssuer, RoverId};
 pub use math::Vec2;
 pub use rng::Rng;
