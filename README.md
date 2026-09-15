@@ -72,6 +72,17 @@ func _ready() -> void:
 4. Без скриптов — «scripts: none»; после attach скрипта — «#1: running» (или finished); при ошибке скрипта — «#1: error (…hud boom…)» с текстом причины.
 5. Панель не мешает камере (drag/зум поверх неё работают), FPS ≥ 60.
 
+## Проверка собранной сцены (boot + integration)
+
+Реальная main-сцена, двумя уровнями (после smoke):
+
+```sh
+bash godot/tests/boot_check.sh                  # запуск сцены без ошибок
+cd godot && godot --headless --script res://tests/scene_integration.gd
+```
+
+Boot-check гоняет сцену 180 кадров и запрещает SCRIPT ERROR / Node not found; scene-integration бутит живую main.tscn и проверяет F12-редактор, HUD-тик, runner+patrol.lua, консоль и Stop. Оба шага в CI.
+
 ## MVP-приёмка (6.2)
 
 Headless-сценарий полного цикла MVP (как игрок: patrol → Run → движение → консоль → Stop → повторный Run):

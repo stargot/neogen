@@ -26,8 +26,11 @@ func _ready() -> void:
 	var parent := get_parent()
 	_rover_id = parent.get("rover_id")
 	_trail = get_node("../Trail")
+	# The sim_path export belongs to the RoverNode parent and is relative
+	# TO IT ("../Sim" = sibling of the rover in the main scene) - resolve
+	# through the parent, not from this Body node.
 	var sim_path: NodePath = parent.get("sim_path")
-	_sim = get_node_or_null(sim_path)
+	_sim = parent.get_node_or_null(sim_path)
 	if _sim == null:
 		push_warning("rover_visual: no SimNode at %s" % sim_path)
 

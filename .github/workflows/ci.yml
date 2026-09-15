@@ -81,3 +81,18 @@ jobs:
           set -o pipefail
           ../Godot_v4.7.2-stable_linux.x86_64 --headless --script res://tests/smoke.gd 2>&1 | tee /tmp/smoke.log
           grep -q "SMOKE OK" /tmp/smoke.log
+
+      - name: Boot check (real main scene, no errors)
+        working-directory: godot
+        run: |
+          set -o pipefail
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --quit-after 180 2>&1 | tee /tmp/boot.log
+          ! grep -qE "SCRIPT ERROR|Node not found|no SimNode|Invalid call|Invalid access|Invalid assignment" /tmp/boot.log
+          grep -q "Neogen shell ready" /tmp/boot.log
+
+      - name: Scene integration (live main.tscn wiring)
+        working-directory: godot
+        run: |
+          set -o pipefail
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --script res://tests/scene_integration.gd 2>&1 | tee /tmp/scene.log
+          grep -q "SCENE INTEGRATION OK" /tmp/scene.log
