@@ -230,6 +230,17 @@ impl ScriptHost {
         self.attach_script(rover, &stored.text)
     }
 
+    /// Queue one command for a rover directly (host-side channel for the
+    /// bridge/tests — scripts go through their own API). Same validation
+    /// as the script path.
+    pub fn push_command(
+        &mut self,
+        rover: RoverId,
+        command: neogen_core::Command,
+    ) -> Result<(), neogen_core::PushCommandsError> {
+        self.context.borrow_mut().push_command(rover, command)
+    }
+
     /// Restart a managed script with new source: fresh chunk, coroutine
     /// and counters, same script id, same rover, fresh env isolation.
     ///

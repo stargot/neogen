@@ -15,4 +15,14 @@ Programming/automation-игра: Godot 4.x + Rust-ядро (детерминир
 
 Сборка расширения: `cargo build -p neogen-gdext --release`, артефакт копируется в `godot/bin/` (не коммитится); регистрация — `godot --headless --import` из `godot/`.
 
+## Headless smoke-тест моста (фаза 3)
+
+Одна команда (из корня репо; требуются собранный extension в `godot/bin/` и однажды выполненный `godot --headless --import` из `godot/`):
+
+```sh
+cd godot && godot --headless --script res://tests/smoke.gd
+```
+
+Проверяет: тик-счётчик, seeded-детерминизм двух SimNode, парковку без команд, движение до цели с конверсией координат (core (3,4) → Godot (3,-4)), совпадение дробного и цельного степпинга. Код выхода 0 — успех.
+
 **Известный баг (Godot 4.7.2 + gdext 0.5.5):** headless editor-импорт с класс-регистрирующим расширением сегфолтится на выходе процесса — ПОСЛЕ записи `.godot/extension_list.cfg`. Сам краш безвреден; чистый прогон `godot --headless --quit` загружает extension без ошибок (CI проверяет именно это). Пересмотреть при обновлении Godot/gdext.

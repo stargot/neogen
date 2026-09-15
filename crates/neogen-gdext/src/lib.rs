@@ -5,6 +5,9 @@
 //! `SimNode` (3.2) and the rover/log bridges (3.3/3.4) on top of this
 //! skeleton.
 
+mod coords;
+mod sim_node;
+
 use godot::classes::INode;
 use godot::classes::Node;
 use godot::prelude::*;

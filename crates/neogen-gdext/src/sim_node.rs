@@ -1,0 +1,151 @@
+//! `SimNode` — the Godot-facing simulation driver (backlog 3.2).
+//!
+//! Ownership: the node owns a [`ScriptHost`], which in turn owns the
+//! `World` (through its shared `WorldContext`, the pattern established in
+//! neogen-script 2.4). `SimNode` talks to the world exclusively through
+//! the host's accessors — the same path scripts use — so there is exactly
+//! one owner and one borrowing discipline (single-threaded, main thread,
+//! as GDExtension callbacks are).
+
+use godot::classes::INode;
+use godot::classes::Node;
+use godot::prelude::*;
+
+use neogen_core::{Command, RoverId, TICK_DT, Vec2};
+use neogen_script::{RuntimeConfig, ScriptHost};
+
+use crate::coords;
+
+/// Drives the simulation from Godot's physics loop.
+///
+/// The tick is decoupled from `_physics_process` frequency: delta time
+/// accumulates, and for every full [`TICK_DT`] (1/30 s, core constant)
+/// exactly one `world.step()` runs. Same wall time — same tick count, on
+/// any machine; the simulation itself never sees wall-clock deltas.
+#[derive(GodotClass)]
+#[class(base = Node)]
+struct SimNode {
+    base: Base<Node>,
+    /// Simulation seed (exposed to the editor; applied on scene start).
+    #[var]
+    seed: i64,
+    host: Option<ScriptHost>,
+    accumulator: f64,
+}
+
+#[godot_api]
+impl INode for SimNode {
+    fn init(base: Base<Node>) -> Self {
+        Self {
+            base,
+            seed: 42,
+            host: None,
+            accumulator: 0.0,
+        }
+    }
+
+    fn ready(&mut self) {
+        self.ensure_host();
+    }
+
+    fn physics_process(&mut self, delta: f64) {
+        let Some(host) = self.host.as_mut() else {
+            return;
+        };
+        self.accumulator += delta;
+        while self.accumulator >= TICK_DT {
+            host.step_world();
+            self.accumulator -= TICK_DT;
+        }
+    }
+}
+
+impl SimNode {
+    /// Create the simulation host on first use. `ready()` is the normal
+    /// path for scene-embedded nodes; scripts that instantiate the node
+    /// during `SceneTree._initialize` run before the tree delivers
+    /// notifications, so every accessor goes through here too (lazy init).
+    fn ensure_host(&mut self) -> Option<&mut ScriptHost> {
+        if self.host.is_none() {
+            match ScriptHost::new(
+                neogen_core::World::new(self.seed as u64),
+                RuntimeConfig::default(),
+            ) {
+                Ok(host) => self.host = Some(host),
+                Err(error) => {
+                    godot_error!("Neogen: cannot create simulation host: {error}");
+                    return None;
+                }
+            }
+        }
+        self.host.as_mut()
+    }
+}
+
+#[godot_api]
+impl SimNode {
+    /// Current simulation tick.
+    #[func]
+    fn get_tick(&mut self) -> i64 {
+        self.ensure_host().map_or(0, |host| host.world_tick()) as i64
+    }
+
+    /// Rover ids present in the world, ascending.
+    #[func]
+    fn get_rover_ids(&mut self) -> PackedInt64Array {
+        let mut ids = PackedInt64Array::new();
+        if let Some(host) = self.ensure_host() {
+            for id in host.rover_ids() {
+                ids.push(id.raw() as i64);
+            }
+        }
+        ids
+    }
+
+    /// Rover position in Godot coordinates (see `coords` for the Y flip).
+    #[func]
+    fn get_rover_position(&mut self, id: i64) -> Vector2 {
+        let position = self
+            .ensure_host()
+            .and_then(|host| host.rover_position(RoverId::from_raw(id as u32)));
+        match position {
+            Some(position) => coords::to_godot(position),
+            None => {
+                godot_warn!("Neogen: no rover with id {id}");
+                Vector2::ZERO
+            }
+        }
+    }
+
+    /// Advance exactly `n` ticks right now (deterministic test path; the
+    /// physics accumulator keeps running independently).
+    #[func]
+    fn step_ticks(&mut self, n: i64) {
+        let Some(host) = self.host.as_mut() else {
+            return;
+        };
+        for _ in 0..n.max(0) {
+            host.step_world();
+        }
+    }
+
+    /// Queue a move for a rover (test/diagnostic channel; player scripts
+    /// use their own API). Returns false for unknown rovers or invalid
+    /// targets.
+    #[func]
+    fn debug_move_rover(&mut self, id: i64, x: f64, y: f64) -> bool {
+        let Some(host) = self.host.as_mut() else {
+            return false;
+        };
+        let command = Command::MoveTo {
+            target: Vec2::new(x, y),
+        };
+        match host.push_command(RoverId::from_raw(id as u32), command) {
+            Ok(()) => true,
+            Err(error) => {
+                godot_warn!("Neogen: debug_move_rover failed: {error}");
+                false
+            }
+        }
+    }
+}

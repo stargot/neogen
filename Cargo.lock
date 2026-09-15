@@ -237,6 +237,8 @@ name = "neogen-gdext"
 version = "0.1.0"
 dependencies = [
  "godot",
+ "neogen-core",
+ "neogen-script",
 ]
 
 [[package]]
