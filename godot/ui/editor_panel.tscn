@@ -42,6 +42,16 @@ text = "Save"
 [node name="RefreshButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
 text = "Refresh"
 
+[node name="RunButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Run"
+
+[node name="StopButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Stop"
+
+[node name="AutoRestart" type="CheckBox" parent="Panel/Margin/VBox/Toolbar"]
+button_pressed = true
+text = "auto-restart"
+
 [node name="CodeEdit" type="CodeEdit" parent="Panel/Margin/VBox"]
 size_flags_vertical = 3
 placeholder_text = "select or create a script…"

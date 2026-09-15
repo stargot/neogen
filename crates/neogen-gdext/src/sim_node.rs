@@ -123,6 +123,36 @@ impl SimNode {
         ids
     }
 
+    /// Drop a rover's command queue (Run/Stop semantics: a stopped run
+    /// must park the rover even if commands are still executing).
+    #[func]
+    fn clear_rover_commands(&mut self, rover_id: i64) -> bool {
+        match self.ensure_host() {
+            Some(host) => host.clear_rover_commands(RoverId::from_raw(rover_id as u32)),
+            None => false,
+        }
+    }
+
+    /// Stop an alive script (phase 5.4 Run/Stop): parks the coroutine
+    /// until a restart. Returns false for unknown/dead scripts.
+    #[func]
+    fn stop_script(&mut self, id: i64) -> bool {
+        match self.ensure_host() {
+            Some(host) => host.stop_script(id as u32),
+            None => false,
+        }
+    }
+
+    /// Remove a managed script entirely (its id disappears). Returns
+    /// false for unknown ids.
+    #[func]
+    fn detach_script(&mut self, id: i64) -> bool {
+        match self.ensure_host() {
+            Some(host) => host.detach_script(id as u32),
+            None => false,
+        }
+    }
+
     /// Lifecycle state of a managed script as `{state: String, error:
     /// String}` — `state` is one of running/suspended/finished/stopped/
     /// error/unknown; `error` carries the message only in the error case.

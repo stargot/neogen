@@ -271,6 +271,14 @@ impl ScriptHost {
         self.managed.get(&id).map(|m| m.state.clone())
     }
 
+    /// Drop a rover's command queue; true if the rover exists. Used by
+    /// the Run/Stop runner (5.4): commands belong to the rover, so
+    /// stopping a *script* alone does not park a rover that is still
+    /// executing queued commands.
+    pub fn clear_rover_commands(&mut self, rover: RoverId) -> bool {
+        self.context.borrow_mut().world_mut().clear_commands(rover)
+    }
+
     /// Stop an alive script (phase 5.4 Run/Stop): the coroutine is parked
     /// forever ([`ScriptState::Stopped`]) — only `restart_script` revives
     /// the id. Returns `false` for unknown or already dead scripts.

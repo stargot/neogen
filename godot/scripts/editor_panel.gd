@@ -21,12 +21,20 @@ var _current_file := ""
 @onready var new_button: Button = $Panel/Margin/VBox/Toolbar/NewButton
 @onready var save_button: Button = $Panel/Margin/VBox/Toolbar/SaveButton
 @onready var refresh_button: Button = $Panel/Margin/VBox/Toolbar/RefreshButton
+@onready var run_button: Button = $Panel/Margin/VBox/Toolbar/RunButton
+@onready var stop_button: Button = $Panel/Margin/VBox/Toolbar/StopButton
+
+## Runner orchestrator (Run/Stop/hot-reload, backlog 5.4); resolved
+## lazily - see the console panel note about _initialize contexts.
+var _runner = null
 
 
 func _ready() -> void:
 	new_button.pressed.connect(_on_new_pressed)
 	save_button.pressed.connect(_on_save_pressed)
 	refresh_button.pressed.connect(_on_refresh_pressed)
+	run_button.pressed.connect(_on_run_pressed)
+	stop_button.pressed.connect(_on_stop_pressed)
 	file_list.item_selected.connect(_on_file_selected)
 
 	# Syntax highlighting (backlog 5.2): warm Lua palette.
@@ -119,6 +127,47 @@ func save_current() -> int:
 
 func _on_refresh_pressed() -> void:
 	refresh_files()
+
+
+func _runner_node():
+	if _runner == null:
+		_runner = get_node_or_null("../Runner")
+	return _runner
+
+
+## Run the current file on the rover (runner semantics: stop+detach the
+## previous run, attach fresh).
+func _on_run_pressed() -> void:
+	if _current_file == "":
+		_set_status("run: select or create a file first")
+		return
+	var runner = _runner_node()
+	if runner == null:
+		_set_status("run: no Runner node at ../Runner")
+		return
+	var script_id: int = runner.run_file(_current_file)
+	if script_id >= 0:
+		_set_status("run: %s (script %d)" % [_current_file, script_id])
+	else:
+		_set_status("run failed: %s" % _current_file)
+
+
+func _on_stop_pressed() -> void:
+	var runner = _runner_node()
+	if runner == null:
+		_set_status("stop: no Runner node")
+		return
+	if runner.stop():
+		_set_status("stopped")
+	else:
+		_set_status("stop: nothing bound")
+
+
+## Auto-restart toggle for hot-reload (single source of truth for the
+## runner; public for tests).
+func is_auto_restart() -> bool:
+	var box: CheckBox = get_node_or_null("Panel/Margin/VBox/Toolbar/AutoRestart")
+	return box != null and box.button_pressed
 
 
 func _set_status(text: String) -> void:

@@ -59,6 +59,7 @@ func _initialize() -> void:
 
 	sim.queue_free()
 	sim2.queue_free()
+	await _run_stop_checks()
 	_console_panel_checks()
 	_speed_heading_checks()
 	_log_bridge_checks()
@@ -163,6 +164,80 @@ func _editor_checks() -> void:
 	panel.refresh_files()
 	panel.queue_free()
 	await _rover_mirror_checks()
+
+
+func _run_stop_checks() -> void:
+	# Backlog 5.4: Run -> moves, Stop -> frozen, hot-reload -> new behavior.
+	var sim := SimNode.new()
+	root.add_child(sim)  # physics drives ticks; positions are deterministic core reads
+	var id := sim.get_rover_ids()[0]
+	var start := sim.get_rover_position(id)
+
+	var ScriptFiles = load("res://scripts/script_files.gd")
+	var files = ScriptFiles.new()
+	var probe := "smoke_run_probe.lua"
+	files.write(probe, "move(60, 0)
+")
+
+	var runner_scene = load("res://scripts/runner.gd")
+	var runner = runner_scene.new()
+	root.add_child(runner)
+	runner.bind_sim(sim)
+
+	# Run: the script starts and the rover moves right.
+	var script_id: int = runner.run_file(probe)
+	check(script_id > 0, "run attaches the script, got %d" % script_id)
+	var frame := await poll_until(
+		func() -> bool: return sim.get_rover_position(id).x - start.x > 1.0, 240
+	)
+	check(frame >= 0, "rover moves after Run (frame %d)" % frame)
+
+	# Stop: the rover freezes (with commands dropped, nothing re-queues).
+	var stopped_ok: bool = runner.stop()
+	check(stopped_ok, "stop reports success")
+	var frozen_at := sim.get_rover_position(id)
+	frame = await poll_until(
+		func() -> bool: return sim.get_rover_position(id).distance_to(frozen_at) > 0.5, 90
+	)
+	check(frame == -1, "rover stays frozen after Stop")
+	check(
+		sim.get_script_state(script_id) == null or str(sim.get_script_state(script_id).get("state")) != "running",
+		"script no longer running"
+	)
+
+	# Hot-reload: edit the file on disk; check_now restarts with new text.
+	files.write(probe, "move(-30, 0)
+")
+	runner.check_now()
+	check(
+		runner.binding.get("script_id") != script_id,
+		"hot-reload re-attached a fresh script id"
+	)
+	frame = await poll_until(
+		func() -> bool: return sim.get_rover_position(id).x < frozen_at.x - 1.0, 240
+	)
+	check(frame >= 0, "rover moves the OTHER way after hot-reload (frame %d)" % frame)
+
+	# Auto-restart off (real editor panel, checkbox unchecked): the edit
+	# is NOT picked up - the binding keeps its script id and text.
+	var attached_now: int = runner.binding.get("script_id")
+	var editor: CanvasLayer = load("res://ui/editor_panel.tscn").instantiate()
+	root.add_child(editor)
+	editor.get_node("Panel/Margin/VBox/Toolbar/AutoRestart").button_pressed = false
+	runner._editor = editor
+	files.write(probe, "move(0, 5)
+")
+	runner.check_now()
+	check(
+		runner.binding.get("script_id") == attached_now
+			and runner.binding.get("text") != files.read(probe),
+		"auto-restart off -> edit not applied"
+	)
+	editor.queue_free()
+
+	files.remove(probe)
+	sim.queue_free()
+	runner.queue_free()
 
 
 func _console_panel_checks() -> void:
