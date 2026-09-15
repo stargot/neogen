@@ -59,10 +59,57 @@ func _initialize() -> void:
 
 	sim.queue_free()
 	sim2.queue_free()
+	_log_bridge_checks()
 	# The mirror checks need a live tree (physics frames); suspending
 	# _initialize itself with await breaks the tree setup, so run the
 	# coroutine deferred instead.
 	_rover_mirror_checks.call_deferred()
+
+
+func _log_bridge_checks() -> void:
+	# Backlog 3.4: script print -> LogBuffer -> log_line signal.
+	var sim := SimNode.new()
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+
+	var captured: Array = []
+	sim.log_line.connect(
+		func(tick: int, rover_id: int, text: String): captured.append([tick, rover_id, text])
+	)
+
+	var script_id := sim.attach_script(id, "print(\"hi\")")
+	check(script_id > 0, "print script attached, got id %d" % script_id)
+	check(captured.is_empty(), "nothing logged before the first tick")
+
+	sim.step_ticks(1)
+	check(captured.size() == 1, "one log_line after the tick, got %d" % captured.size())
+	check(
+		captured.size() == 1
+			and captured[0][0] == 0
+			and captured[0][1] == id
+			and captured[0][2] == "hi",
+		"log payload matches (tick, rover, text): %s" % str(captured)
+	)
+
+	# Repeat polls never duplicate: the drain is read -> cleared.
+	sim.step_ticks(1)
+	sim.step_ticks(1)
+	check(captured.size() == 1, "no duplicate lines on repeat ticks, got %d" % captured.size())
+
+	# Error lines flow through the same signal (lifecycle 2.5).
+	var bad := sim.attach_script(id, "error('boom in log')")
+	check(bad > 0, "failing script attached")
+	sim.step_ticks(1)
+	check(
+		captured.size() == 2 and str(captured[1][2]).begins_with("error: "),
+		"error line captured: %s" % str(captured)
+	)
+
+	# Compile errors do not attach anything and log nothing.
+	check(sim.attach_script(id, "return +") == -1, "compile error -> -1")
+	sim.step_ticks(1)
+	check(captured.size() == 2, "no line for the failed attach")
+	sim.queue_free()
 
 
 func _rover_mirror_checks() -> void:

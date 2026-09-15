@@ -49,12 +49,9 @@ impl INode for SimNode {
     }
 
     fn physics_process(&mut self, delta: f64) {
-        let Some(host) = self.host.as_mut() else {
-            return;
-        };
         self.accumulator += delta;
         while self.accumulator >= TICK_DT {
-            host.step_world();
+            self.step_and_emit();
             self.accumulator -= TICK_DT;
         }
     }
@@ -84,6 +81,11 @@ impl SimNode {
 
 #[godot_api]
 impl SimNode {
+    /// Emitted for every script log line, one signal per entry, after the
+    /// tick that produced it (backlog 3.4).
+    #[signal]
+    fn log_line(tick: i64, rover_id: i64, text: GString);
+
     /// Current simulation tick.
     #[func]
     fn get_tick(&mut self) -> i64 {
@@ -128,11 +130,24 @@ impl SimNode {
     /// physics accumulator keeps running independently).
     #[func]
     fn step_ticks(&mut self, n: i64) {
-        let Some(host) = self.host.as_mut() else {
-            return;
-        };
         for _ in 0..n.max(0) {
-            host.step_world();
+            self.step_and_emit();
+        }
+    }
+
+    /// Attach a Lua script to a rover (managed: runs inside every
+    /// `step_world`). Returns the script id, or -1 on a compile error.
+    #[func]
+    fn attach_script(&mut self, rover_id: i64, source: GString) -> i64 {
+        let Some(host) = self.ensure_host() else {
+            return -1;
+        };
+        match host.attach_script(RoverId::from_raw(rover_id as u32), &source.to_string()) {
+            Ok(id) => id as i64,
+            Err(error) => {
+                godot_warn!("Neogen: attach_script failed: {error}");
+                -1
+            }
         }
     }
 
@@ -153,6 +168,29 @@ impl SimNode {
                 godot_warn!("Neogen: debug_move_rover failed: {error}");
                 false
             }
+        }
+    }
+}
+
+impl SimNode {
+    /// One world tick, then drain the log buffer and emit one
+    /// `log_line` signal per entry. Draining is read → cleared
+    /// (`ScriptHost::drain_logs`), so repeat polls never duplicate; ring
+    /// overflow already dropped the oldest entries inside the buffer.
+    fn step_and_emit(&mut self) {
+        if let Some(host) = self.host.as_mut() {
+            host.step_world();
+        }
+        let entries = match self.host.as_mut() {
+            Some(host) => host.drain_logs(),
+            None => Vec::new(),
+        };
+        for entry in entries {
+            self.signals().log_line().emit(
+                entry.tick as i64,
+                entry.rover_id.raw() as i64,
+                &GString::from(&entry.text),
+            );
         }
     }
 }

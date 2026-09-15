@@ -138,8 +138,12 @@ impl Script {
         id: u32,
         source: &str,
     ) -> Result<Self, ScriptError> {
+        // Explicit chunk name: without it mlua embeds the host-side Rust
+        // file:line into every script error, leaking host paths into
+        // player-facing logs.
         let function = lua
             .load(source)
+            .set_name(format!("script {id}"))
             .into_function()
             .map_err(|error| ScriptError::compile(&error))?;
         // Pure-Lua scripts (no host API) have no command closures: the

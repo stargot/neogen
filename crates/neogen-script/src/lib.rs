@@ -359,6 +359,7 @@ impl ScriptHost {
 
         let function = lua
             .load(source)
+            .set_name(format!("script {id}"))
             .set_environment(env)
             .into_function()
             .map_err(|error| ScriptError::compile(&error))?;
