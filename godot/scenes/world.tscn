@@ -1,0 +1,30 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/grid.gd" id="1_grid"]
+[ext_resource type="Script" path="res://scripts/camera.gd" id="2_camera"]
+
+[sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_pad"]
+light_mode = 1
+
+[node name="World" type="Node2D"]
+
+[node name="WarmLight" type="DirectionalLight2D" parent="."]
+rotation = 0.523599
+energy = 0.9
+shadow_enabled = true
+shadow_blur = 4.0
+
+[node name="Pad" type="ColorRect" parent="."]
+material = SubResource("CanvasItemMaterial_pad")
+offset_left = -9.0
+offset_top = -9.0
+offset_right = 9.0
+offset_bottom = 9.0
+mouse_filter = 2
+color = Color(0.24, 0.31, 0.24, 1)
+
+[node name="Grid" type="Node2D" parent="."]
+script = ExtResource("1_grid")
+
+[node name="Camera" type="Camera2D" parent="."]
+script = ExtResource("2_camera")

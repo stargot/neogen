@@ -1,11 +1,14 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/rover.tscn" id="2_rover"]
 [ext_resource type="Script" path="res://scripts/console.gd" id="3_console"]
+[ext_resource type="PackedScene" path="res://scenes/world.tscn" id="4_world"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
+
+[node name="World" parent="." instance=ExtResource("4_world")]
 
 [node name="Sim" type="SimNode" parent="."]
 
