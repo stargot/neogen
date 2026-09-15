@@ -6,6 +6,16 @@
 //! depend on Godot, GDExtension bindings, or any third-party crate, so the
 //! simulation stays deterministic, portable, and testable headless.
 
+pub mod ids;
+pub mod math;
+pub mod tick;
+pub mod world;
+
+pub use ids::{IdIssuer, RoverId};
+pub use math::Vec2;
+pub use tick::{TICK_DT, TICK_HZ};
+pub use world::{Rover, World, WorldState};
+
 /// Version of the simulation engine API (matches the crate version).
 pub fn engine_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
