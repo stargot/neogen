@@ -4,6 +4,10 @@
 # mirror is a Node2D — the scene works in core units directly (coords has
 # no scale factor); the on-screen size comes from the camera zoom.
 #
+# Zoom units (review #1): Godot's Camera2D zoom is PIXELS per world unit
+# (zoom > 1 magnifies). One world unit is small on purpose (the rover hull
+# is ~0.8 units), so usable zooms live in the 2..50 range.
+#
 # Controls (documented in README «Ручной тест 4.1»):
 #   - pan: middle-button drag, or left-button drag while holding Space;
 #   - zoom: mouse wheel, zoomed toward the cursor, clamped to
@@ -11,15 +15,16 @@
 #     the art pass).
 extends Camera2D
 
-const MIN_ZOOM := 0.02   # far out: the whole pad and grid in view
-const MAX_ZOOM := 0.5    # close up: single grid cells
+const MIN_ZOOM := 2.0    # far out: the whole grid in view
+const MAX_ZOOM := 50.0   # close up: single grid cells fill the screen
 const ZOOM_STEP := 1.25
 
 var _panning := false
 
 
 func _ready() -> void:
-	zoom = Vector2(0.06, 0.06)  # start with the whole start pad framed
+	# ~300 px for the 18-unit start pad (review #1: 16.67 px/unit).
+	zoom = Vector2(16.67, 16.67)
 	position = Vector2.ZERO
 	make_current()
 

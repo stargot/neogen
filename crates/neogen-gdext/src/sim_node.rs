@@ -158,7 +158,9 @@ impl SimNode {
     }
 
     /// Rover's effective speed: cruise speed while driving, 0 when
-    /// parked (backlog 4.2). -1 for unknown rovers.
+    /// parked (backlog 4.2). **Silent by design: polled per frame** by
+    /// the visual layer — unlike `get_rover_position`, no warning for
+    /// unknown ids, just -1. -1 for unknown rovers.
     #[func]
     fn get_rover_speed(&mut self, id: i64) -> f64 {
         self.ensure_host()
@@ -167,7 +169,8 @@ impl SimNode {
     }
 
     /// Rover's heading in Godot coordinates (approximately unit vector;
-    /// ZERO for unknown rovers).
+    /// ZERO for unknown rovers). Silent by design: polled per frame
+    /// (same convention as `get_rover_speed`).
     #[func]
     fn get_rover_heading(&mut self, id: i64) -> Vector2 {
         self.ensure_host()

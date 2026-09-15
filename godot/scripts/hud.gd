@@ -11,6 +11,7 @@ const ERROR_PREFIX := "error: "
 var last_error := ""
 
 var _sim = null
+var _seed_text := "seed: —"
 
 @onready var tick_label: Label = $Panel/Margin/VBox/TickLabel
 @onready var seed_label: Label = $Panel/Margin/VBox/SeedLabel
@@ -24,15 +25,20 @@ func _ready() -> void:
 # Public for tests: bind any SimNode (the default wiring uses ../Sim).
 func bind_sim(sim) -> void:
 	_sim = sim
-	if sim != null:
-		sim.log_line.connect(_on_log_line)
+	if sim == null:
+		push_warning("Neogen HUD: no SimNode at ../Sim")
+		return
+	sim.log_line.connect(_on_log_line)
+	# Seed is fixed at host creation (changing #[var] seed later has no
+	# effect) - cache the text once instead of per-frame get() calls.
+	_seed_text = "seed: %d" % sim.get("seed")
 
 
 func _process(_delta: float) -> void:
 	if _sim == null:
 		return
 	tick_label.text = "tick: %d" % _sim.get_tick()
-	seed_label.text = "seed: %d" % _sim.get("seed")
+	seed_label.text = _seed_text
 
 	var parts: Array[String] = []
 	for id in _sim.get_script_ids():
@@ -48,8 +54,7 @@ func _state_text(state: Dictionary) -> String:
 			# (before the traceback); keep the tail so the cause stays
 			# visible in the narrow panel.
 			var message: String = str(state.get("error", last_error))
-			message = message.split("
-")[0]
+			message = message.split("\n")[0]
 			if message.length() > 48:
 				message = "…" + message.substr(message.length() - 47)
 			return "error (%s)" % message
