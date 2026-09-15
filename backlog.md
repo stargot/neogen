@@ -150,7 +150,7 @@
   - DoD: `godot --headless --quit` в `godot/` — в логе видно загрузку `neogen` extension без ошибок.
   - Зависит от: 0.3, 0.2.
 
-- [ ] **3.2. Мост тика: Godot ведёт симуляцию** — M, риск: средний
+- [x] **3.2. Мост тика: Godot ведёт симуляцию** — M, риск: средний ✅ `9746836`
   - Файлы: `src/sim_node.rs` (класс `SimNode`), `godot/scenes/main.tscn` (добавить SimNode), `godot/tests/smoke.gd`.
   - Шаги: `SimNode` владеет `World` и рантаймом скриптов; в `_physics_process` — аккумулятор времени → ровно один `step()` на фиксированный интервал; API-поля для чтения тика/позиций.
   - DoD: headless GDScript-тест: после N тиков `SimNode.get_tick() == N`, позиция ровера в Godot == значение из core (проверка из GDScript через прямое сравнение).
