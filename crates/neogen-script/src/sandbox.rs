@@ -26,8 +26,8 @@
 //! a chunk to (a copy of) the same stripped table. With `load` absent,
 //! scripts cannot compile fresh chunks that captured a different env.
 //!
-//! `print` stays available for now; backlog 2.4 replaces it with a
-//! LogBuffer-backed implementation.
+//! The built-in `print` is removed: script environments receive a
+//! LogBuffer-backed replacement installed per script (see `api`).
 
 use mlua::{Lua, StdLib};
 
@@ -44,6 +44,9 @@ const REMOVED_GLOBALS: &[&str] = &[
     "dofile",
     "require",
     "collectgarbage",
+    // 2.4: the built-in print is removed; script environments get a
+    // LogBuffer-backed replacement (see `api`).
+    "print",
 ];
 
 /// The safe standard library subset: coroutines for the future scheduler

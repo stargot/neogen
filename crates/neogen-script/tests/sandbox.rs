@@ -67,29 +67,25 @@ fn runtime_survives_every_sandbox_error() {
 }
 
 #[test]
-fn print_is_still_available() {
-    // Built-in print stays until 2.4 swaps it for a LogBuffer-backed one
-    // (see sandbox.rs docs).
+fn builtin_print_is_gone_from_globals() {
+    // Since 2.4 the built-in print is removed from the shared globals;
+    // scripts get a LogBuffer-backed replacement in their private env
+    // (see ScriptHost::create_script and api::install).
     let runtime = fresh();
-    let value = runtime
-        .eval("print('sandbox smoke') return 42")
-        .expect("print works");
-    assert_eq!(value, EvalValue::Number(42.0));
+    assert!(!runtime.has_global("print"));
+    assert!(runtime.eval("print('raw globals must not print')").is_err());
+    // Sandbox globals keep working for non-print code.
+    assert_eq!(
+        runtime.eval("return 42").expect("eval works"),
+        EvalValue::Number(42.0)
+    );
 }
 
 #[test]
 fn sandboxed_globals_visibility() {
     let runtime = fresh();
     // Kept: the whitelist.
-    for name in [
-        "math",
-        "string",
-        "table",
-        "coroutine",
-        "utf8",
-        "print",
-        "pcall",
-    ] {
+    for name in ["math", "string", "table", "coroutine", "utf8", "pcall"] {
         assert!(runtime.has_global(name), "{name} should be visible");
     }
     // Removed.
@@ -103,6 +99,7 @@ fn sandboxed_globals_visibility() {
         "dofile",
         "require",
         "collectgarbage",
+        "print",
     ] {
         assert!(!runtime.has_global(name), "{name} must be invisible");
     }

@@ -108,6 +108,17 @@ impl Script {
         source: &str,
     ) -> Result<Self, ScriptError> {
         let function = lua.load(source).into_function()?;
+        Self::spawn_function(lua, config, id, function)
+    }
+
+    /// Spawn from an already-built function (e.g. a chunk loaded with a
+    /// custom `_ENV` — see `ScriptHost::create_script`).
+    pub(crate) fn spawn_function(
+        lua: &Lua,
+        config: RuntimeConfig,
+        id: u32,
+        function: mlua::Function,
+    ) -> Result<Self, ScriptError> {
         let thread = lua.create_thread(function)?;
         let budget = install_hook(&thread, config)?;
         Ok(Self {

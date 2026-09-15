@@ -130,6 +130,7 @@ name = "neogen-script"
 version = "0.1.0"
 dependencies = [
  "mlua",
+ "neogen-core",
 ]
 
 [[package]]
