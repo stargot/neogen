@@ -27,7 +27,7 @@
   - DoD: `cargo test -p neogen-core` зелёный; `cargo clippy --workspace -- -D warnings` чистый.
   - Зависит от: 0.1.
 
-- [ ] **0.3. Каркас Godot-проекта** — S, риск: низкий
+- [x] **0.3. Каркас Godot-проекта** — S, риск: низкий ✅ `8fad1cd`
   - Файлы: `godot/project.godot`, `godot/scenes/main.tscn` (пустая main-сцена), `godot/scripts/main.gd`.
   - Шаги: создать Godot 4.x проект (версию Godot зафиксировать в README, например 4.3+), main-сцена по умолчанию.
   - DoD: `godot --headless --quit` (путь к Godot из README) завершается без ошибок импорта.
