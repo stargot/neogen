@@ -6,6 +6,7 @@
 //! skeleton.
 
 mod coords;
+mod rover_node;
 mod sim_node;
 
 use godot::classes::INode;

@@ -24,7 +24,7 @@ use crate::coords;
 /// any machine; the simulation itself never sees wall-clock deltas.
 #[derive(GodotClass)]
 #[class(base = Node)]
-struct SimNode {
+pub(crate) struct SimNode {
     base: Base<Node>,
     /// Simulation seed (exposed to the editor; applied on scene start).
     #[var]
@@ -90,6 +90,13 @@ impl SimNode {
         self.ensure_host().map_or(0, |host| host.world_tick()) as i64
     }
 
+    /// Fraction of the way to the next tick, 0..1 (render interpolation
+    /// input: how close the accumulator is to the next `TICK_DT`).
+    #[func]
+    pub(crate) fn tick_alpha(&self) -> f32 {
+        (self.accumulator / TICK_DT).clamp(0.0, 1.0) as f32
+    }
+
     /// Rover ids present in the world, ascending.
     #[func]
     fn get_rover_ids(&mut self) -> PackedInt64Array {
@@ -104,7 +111,7 @@ impl SimNode {
 
     /// Rover position in Godot coordinates (see `coords` for the Y flip).
     #[func]
-    fn get_rover_position(&mut self, id: i64) -> Vector2 {
+    pub(crate) fn get_rover_position(&mut self, id: i64) -> Vector2 {
         let position = self
             .ensure_host()
             .and_then(|host| host.rover_position(RoverId::from_raw(id as u32)));

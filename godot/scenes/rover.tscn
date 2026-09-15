@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[node name="Rover" type="RoverNode"]
+
+rover_id = 1
+sim_path = NodePath("../Sim")
