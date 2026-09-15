@@ -11,6 +11,7 @@ pub mod hash;
 pub mod ids;
 pub mod math;
 pub mod rng;
+pub mod snapshot;
 pub mod tick;
 pub mod world;
 
@@ -19,6 +20,7 @@ pub use hash::{Fnv1a, state_hash};
 pub use ids::{IdIssuer, RoverId};
 pub use math::Vec2;
 pub use rng::Rng;
+pub use snapshot::{MAGIC, SNAPSHOT_VERSION, SnapshotError, from_bytes, to_bytes};
 pub use tick::{TICK_DT, TICK_HZ};
 pub use world::{Rover, World, WorldState};
 

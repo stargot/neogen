@@ -55,6 +55,22 @@ impl IdIssuer {
             .expect("entity id space exhausted (u32)");
         id
     }
+
+    /// Raw value the next [`issue`](Self::issue) call will hand out
+    /// (snapshot serialization; crate-internal).
+    pub(crate) fn next_raw(&self) -> u32 {
+        self.next
+    }
+
+    /// Resume an issuer at `next` (snapshot decoding; crate-internal).
+    /// Id `0` is reserved, so `next` must be at least 1.
+    pub(crate) fn resume(next: u32) -> Self {
+        assert!(
+            next >= 1,
+            "id 0 is reserved, issuer cannot resume at {next}"
+        );
+        Self { next }
+    }
 }
 
 impl Default for IdIssuer {

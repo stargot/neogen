@@ -66,6 +66,13 @@ impl Rng {
         self.s
     }
 
+    /// Rebuild a generator from raw state words (snapshot decoding).
+    /// Returns `None` for the all-zero state: xoshiro256\*\* never produces
+    /// it and would degenerate there (constant zero output).
+    pub fn from_state_words(s: [u64; 4]) -> Option<Self> {
+        if s == [0; 4] { None } else { Some(Self { s }) }
+    }
+
     /// Next raw 64-bit value (xoshiro256\*\* step).
     pub fn next_u64(&mut self) -> u64 {
         let result = self.s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);

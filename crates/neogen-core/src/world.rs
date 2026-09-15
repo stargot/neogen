@@ -83,6 +83,30 @@ impl WorldState {
     pub(crate) fn rng_mut(&mut self) -> &mut Rng {
         &mut self.rng
     }
+
+    /// Id-issuer watermark: the id the next spawned rover will receive
+    /// (snapshot serialization; crate-internal).
+    pub(crate) fn next_rover_id(&self) -> u32 {
+        self.id_issuer.next_raw()
+    }
+
+    /// Rebuild a state from already-validated parts (snapshot decoding;
+    /// crate-internal). `next_rover_id` must be above every rover id.
+    pub(crate) fn from_parts(
+        tick: u64,
+        seed: u64,
+        rovers: BTreeMap<RoverId, Rover>,
+        next_rover_id: u32,
+        rng: Rng,
+    ) -> Self {
+        Self {
+            tick,
+            seed,
+            rovers,
+            id_issuer: IdIssuer::resume(next_rover_id),
+            rng,
+        }
+    }
     /// Spawn a rover with the given start pose and return its id.
     ///
     /// Ids come from the sequential issuer, so spawn order alone decides
