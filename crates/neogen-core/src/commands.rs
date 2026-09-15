@@ -11,6 +11,11 @@ use crate::math::Vec2;
 /// Duration of a [`Command::Scan`], in ticks.
 pub const SCAN_TICKS: u64 = 5;
 
+/// Compile-time invariant: a scan must take at least one tick
+/// (FIX-раунд 1.5 #7) — a zero would complete a Scan "in the same tick"
+/// and break the arm/decrement logic in `rover.rs`.
+const _: () = assert!(SCAN_TICKS >= 1);
+
 /// One command for a rover.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {

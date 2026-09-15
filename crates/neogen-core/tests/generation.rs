@@ -11,10 +11,10 @@ fn same_seed_generates_identical_worlds() {
 
     let rover_a = a.rovers().next().expect("rover exists");
     let rover_b = b.rovers().next().expect("rover exists");
-    assert_eq!(rover_a.position, rover_b.position);
-    assert_eq!(rover_a.heading, rover_b.heading);
-    assert_eq!(rover_a.id, rover_b.id);
-    assert_eq!(rover_a.id, RoverId::from_raw(1));
+    assert_eq!(rover_a.position(), rover_b.position());
+    assert_eq!(rover_a.heading(), rover_b.heading());
+    assert_eq!(rover_a.id(), rover_b.id());
+    assert_eq!(rover_a.id(), RoverId::from_raw(1));
 }
 
 #[test]
@@ -34,13 +34,13 @@ fn different_seeds_generate_different_worlds() {
     let b = World::new(2);
     assert_ne!(a.state(), b.state());
 
-    let pos_a = a.rovers().next().expect("rover exists").position;
-    let pos_b = b.rovers().next().expect("rover exists").position;
+    let pos_a = a.rovers().next().expect("rover exists").position();
+    let pos_b = b.rovers().next().expect("rover exists").position();
     assert_ne!(pos_a, pos_b);
     // ...but id issuance stays seed-independent.
     assert_eq!(
-        a.rovers().next().expect("rover exists").id,
-        b.rovers().next().expect("rover exists").id
+        a.rovers().next().expect("rover exists").id(),
+        b.rovers().next().expect("rover exists").id()
     );
 }
 
@@ -49,9 +49,9 @@ fn rover_spawns_on_the_starting_pad() {
     for seed in [0, 1, 42, u64::MAX] {
         let world = World::new(seed);
         let rover = world.rovers().next().expect("rover exists");
-        assert!((-START_PAD_HALF_SIZE..START_PAD_HALF_SIZE).contains(&rover.position.x));
-        assert!((-START_PAD_HALF_SIZE..START_PAD_HALF_SIZE).contains(&rover.position.y));
-        assert_eq!(rover.speed, 0.0);
+        assert!((-START_PAD_HALF_SIZE..START_PAD_HALF_SIZE).contains(&rover.position().x));
+        assert!((-START_PAD_HALF_SIZE..START_PAD_HALF_SIZE).contains(&rover.position().y));
+        assert_eq!(rover.speed(), 0.0);
     }
 }
 

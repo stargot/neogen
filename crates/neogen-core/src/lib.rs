@@ -23,10 +23,10 @@ pub use hash::{Fnv1a, state_hash};
 pub use ids::{IdIssuer, RoverId};
 pub use math::Vec2;
 pub use rng::Rng;
-pub use rover::DEFAULT_CRUISE_SPEED;
+pub use rover::{DEFAULT_CRUISE_SPEED, MAX_SCAN_BUFFER};
 pub use snapshot::{MAGIC, SNAPSHOT_VERSION, SnapshotError, from_bytes, to_bytes};
 pub use tick::{TICK_DT, TICK_HZ};
-pub use world::{PushCommandsError, Rover, World, WorldState};
+pub use world::{PushCommandsError, Rover, SetSpeedError, SpeedError, World, WorldState};
 
 /// Version of the simulation engine API (matches the crate version).
 pub fn engine_version() -> &'static str {

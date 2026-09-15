@@ -1,10 +1,13 @@
 //! Backlog 1.5 — command-driven rover movement.
 
-use neogen_core::{Command, DEFAULT_CRUISE_SPEED, RoverId, SCAN_TICKS, Vec2, World, state_hash};
+use neogen_core::{
+    Command, DEFAULT_CRUISE_SPEED, MAX_SCAN_BUFFER, RoverId, SCAN_TICKS, SetSpeedError, Vec2,
+    World, state_hash,
+};
 
 fn sole_rover(world: &World) -> (RoverId, Vec2) {
     let rover = world.rovers().next().expect("rover exists");
-    (rover.id, rover.position)
+    (rover.id(), rover.position())
 }
 
 #[test]
@@ -13,7 +16,7 @@ fn move_to_arrives_exactly_without_oscillation() {
     let (id, start) = sole_rover(&world);
     // Distance 50, cruise 3: ticks 1..=16 move 3 each (48 < 50), tick 17
     // covers the remaining 2 and lands exactly — a non-round tick count.
-    world.rover_mut(id).expect("rover exists").speed = 3.0;
+    world.set_rover_speed(id, 3.0).expect("valid speed");
     let target = start + Vec2::new(30.0, 40.0); // |(30, 40)| = 50
     world
         .push_commands(id, [Command::MoveTo { target }])
@@ -24,7 +27,7 @@ fn move_to_arrives_exactly_without_oscillation() {
         let left = world
             .rover(id)
             .expect("rover exists")
-            .position
+            .position()
             .distance_to(target);
         assert!(
             (left - (50.0 - 3.0 * expected_tick as f64)).abs() < 1e-9,
@@ -35,18 +38,18 @@ fn move_to_arrives_exactly_without_oscillation() {
     world.step(); // tick 17: lands
     let rover = world.rover(id).expect("rover exists");
     assert!(
-        rover.position.distance_to(target) < 1e-12,
+        rover.position().distance_to(target) < 1e-12,
         "not exactly on target: {:?}",
-        rover.position
+        rover.position()
     );
-    assert!(rover.commands.is_empty());
+    assert!(rover.commands().is_empty());
 
     // No oscillation or drift afterwards.
     for _ in 0..5 {
         world.step();
     }
     let rover = world.rover(id).expect("rover exists");
-    assert_eq!(rover.position, target);
+    assert_eq!(rover.position(), target);
 }
 
 #[test]
@@ -70,20 +73,20 @@ fn commands_execute_in_order() {
 
     world.step(); // tick 1: at A, two commands left
     let rover = world.rover(id).expect("rover exists");
-    assert_eq!(rover.position, a);
-    assert_eq!(rover.commands.len(), 2);
+    assert_eq!(rover.position(), a);
+    assert_eq!(rover.commands().len(), 2);
 
     world.step();
     world.step(); // ticks 2-3: at B
-    assert_eq!(world.rover(id).expect("rover exists").position, b);
+    assert_eq!(world.rover(id).expect("rover exists").position(), b);
 
     for _ in 0..SCAN_TICKS {
         world.step(); // ticks 4..=8: scan
     }
     let rover = world.rover(id).expect("rover exists");
-    assert_eq!(rover.position, b);
-    assert!(rover.commands.is_empty());
-    assert_eq!(rover.scan_buffer.len(), 1);
+    assert_eq!(rover.position(), b);
+    assert!(rover.commands().is_empty());
+    assert_eq!(rover.scan_results().len(), 1);
 }
 
 #[test]
@@ -100,7 +103,7 @@ fn scan_takes_exactly_scan_ticks_and_buffers_result() {
             world
                 .rover(id)
                 .expect("rover exists")
-                .scan_buffer
+                .scan_results()
                 .is_empty(),
             "scan finished early at tick {tick}"
         );
@@ -108,8 +111,8 @@ fn scan_takes_exactly_scan_ticks_and_buffers_result() {
 
     world.step(); // tick SCAN_TICKS: completes
     let rover = world.rover(id).expect("rover exists");
-    assert!(rover.commands.is_empty());
-    let result = &rover.scan_buffer[0];
+    assert!(rover.commands().is_empty());
+    let result = &rover.scan_results()[0];
     assert_eq!(result.tick, SCAN_TICKS);
     assert_eq!(result.radius, 7.5);
     assert!(result.points.is_empty()); // placeholder until phase 7
@@ -124,8 +127,8 @@ fn noop_completes_in_one_tick() {
         .expect("valid commands");
     world.step();
     let rover = world.rover(id).expect("rover exists");
-    assert!(rover.commands.is_empty());
-    assert_eq!(rover.position, start);
+    assert!(rover.commands().is_empty());
+    assert_eq!(rover.position(), start);
 }
 
 #[test]
@@ -209,7 +212,114 @@ fn default_cruise_speed_is_sane() {
         .expect("valid commands");
     rover_world.step();
     assert_eq!(
-        rover_world.rover(id).expect("rover exists").position.x,
+        rover_world.rover(id).expect("rover exists").position().x,
         start.x + speed
     );
+}
+
+#[test]
+fn take_scan_results_drains_the_buffer() {
+    let mut world = World::new(13);
+    let (id, _) = sole_rover(&world);
+    world
+        .push_commands(id, [Command::Scan { radius: 1.0 }])
+        .expect("valid commands");
+    for _ in 0..SCAN_TICKS {
+        world.step();
+    }
+    let taken = world.take_scan_results(id).expect("rover exists");
+    assert_eq!(taken.len(), 1);
+    // Read → cleared: the second take yields nothing new.
+    assert!(
+        world
+            .rover(id)
+            .expect("rover exists")
+            .scan_results()
+            .is_empty()
+    );
+    assert!(
+        world
+            .take_scan_results(id)
+            .expect("rover exists")
+            .is_empty()
+    );
+}
+
+#[test]
+fn take_scan_results_unknown_rover_is_none() {
+    let mut world = World::new(13);
+    assert!(world.take_scan_results(RoverId::from_raw(999)).is_none());
+}
+
+#[test]
+fn scan_buffer_is_capped_oldest_evicted() {
+    let mut world = World::new(17);
+    let (id, _) = sole_rover(&world);
+    // Run MAX_SCAN_BUFFER + 1 scans; only the newest MAX survive.
+    for _ in 0..=(MAX_SCAN_BUFFER as u64) {
+        world
+            .push_commands(id, [Command::Scan { radius: 1.0 }])
+            .expect("valid commands");
+        for _ in 0..SCAN_TICKS {
+            world.step();
+        }
+    }
+    let buffer = world.rover(id).expect("rover exists").scan_results();
+    assert_eq!(buffer.len(), MAX_SCAN_BUFFER);
+    // The very first scan (completed at tick SCAN_TICKS) was evicted.
+    assert!(buffer[0].tick > SCAN_TICKS, "oldest not evicted");
+    // Ticks are strictly increasing (deterministic order kept).
+    assert!(buffer.windows(2).all(|w| w[0].tick < w[1].tick));
+}
+
+#[test]
+fn set_rover_speed_validates_input() {
+    let mut world = World::new(19);
+    let (id, _) = sole_rover(&world);
+    assert_eq!(world.set_rover_speed(id, 3.5), Ok(()));
+    assert_eq!(world.rover(id).expect("rover exists").speed(), 3.5);
+    // 0.0 is allowed: factory default.
+    assert_eq!(world.set_rover_speed(id, 0.0), Ok(()));
+    // Negative and non-finite are rejected, value unchanged.
+    for bad in [-1.0, f64::NAN, f64::INFINITY] {
+        assert!(world.set_rover_speed(id, bad).is_err());
+    }
+    assert_eq!(world.rover(id).expect("rover exists").speed(), 0.0);
+    // Unknown rover.
+    assert_eq!(
+        world
+            .set_rover_speed(RoverId::from_raw(999), 1.0)
+            .unwrap_err(),
+        SetSpeedError::UnknownRover
+    );
+}
+
+#[test]
+fn clear_commands_parks_the_rover() {
+    let mut world = World::new(23);
+    let (id, start) = sole_rover(&world);
+    world
+        .push_commands(
+            id,
+            [Command::MoveTo {
+                target: start + Vec2::new(50.0, 0.0),
+            }],
+        )
+        .expect("valid commands");
+    for _ in 0..5 {
+        world.step();
+    }
+    assert!(!world.rover(id).expect("rover exists").position().eq(&start));
+    assert!(world.clear_commands(id));
+    for _ in 0..5 {
+        world.step();
+    }
+    let rover = world.rover(id).expect("rover exists");
+    assert!(rover.commands().is_empty());
+    // Parked where the cancellation caught it (not back at start).
+    let parked = rover.position();
+    world.step();
+    assert_eq!(world.rover(id).expect("rover exists").position(), parked);
+    // Unknown rover: false.
+    assert!(!world.clear_commands(RoverId::from_raw(999)));
 }

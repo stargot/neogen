@@ -27,6 +27,13 @@ use crate::world::Rover;
 /// hash fixtures stable — `speed` is part of the state walk.
 pub const DEFAULT_CRUISE_SPEED: f64 = 2.0;
 
+/// Maximum completed scans kept per rover (FIX-раунд 1.5 #4).
+///
+/// Overflow policy: oldest results are evicted — scripts care about the
+/// latest scans, and a hard rejection would stall a script that forgets
+/// to drain its buffer.
+pub const MAX_SCAN_BUFFER: usize = 16;
+
 /// Effective cruise speed for this tick (override or factory default).
 /// Any non-positive value — `0.0` by convention, a negative only via
 /// invalid input (see the `speed` field docs) — selects the default.
@@ -87,6 +94,10 @@ fn step_scan(rover: &mut Rover, tick: u64, radius: f64) -> bool {
             radius,
             points: Vec::new(),
         });
+        // Cap the buffer: evict the oldest results (see MAX_SCAN_BUFFER).
+        while rover.scan_buffer.len() > MAX_SCAN_BUFFER {
+            rover.scan_buffer.remove(0);
+        }
         true
     } else {
         false

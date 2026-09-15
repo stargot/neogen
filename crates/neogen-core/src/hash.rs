@@ -134,10 +134,9 @@ mod tests {
     #[test]
     fn rover_field_change_changes_hash() {
         let mut world = World::new(42);
-        let id = world.rovers().next().expect("rover exists").id;
+        let id = world.rovers().next().expect("rover exists").id();
         let before = state_hash(world.state());
-        let rover = world.rover_mut(id).expect("rover exists");
-        rover.speed = 1.0;
+        world.set_rover_speed(id, 1.0).expect("valid speed");
         assert_ne!(state_hash(world.state()), before);
     }
 

@@ -39,37 +39,118 @@ impl std::error::Error for PushCommandsError {}
 ///
 /// Physical state (position, heading, speed) plus the command queue and
 /// scan buffer. Movement is command-driven (backlog 1.5): a rover without
-/// queued commands parks, regardless of its speed field.
+/// queued commands parks, regardless of its speed setting.
+///
+/// Fields are crate-private; external writers go through the intent
+/// methods (FIX-раунд 1.5 #5). The Godot bridge touches rovers only via
+/// `push_commands` / `take_scan_results` / `set_rover_speed` /
+/// `clear_commands` — nothing else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rover {
     /// Entity id (registry key).
-    pub id: RoverId,
+    pub(crate) id: RoverId,
     /// Position in world units.
-    pub position: Vec2,
+    pub(crate) position: Vec2,
     /// Heading as a (approximately unit) direction vector, computed with
     /// IEEE basic operations only (`delta / distance`) — never via
     /// `atan2`/`sin`/`cos`, whose libm last bit varies between platforms
     /// (FIX-раунд 1.5 #2). Updated while moving.
-    pub heading: Vec2,
+    pub(crate) heading: Vec2,
     /// Cruise-speed override in world units per tick. Must be finite and
     /// `>= 0.0`; `0.0` (the spawn default) selects the factory default
     /// ([`crate::rover::DEFAULT_CRUISE_SPEED`]). A negative value is
-    /// invalid input: direct field writes would silently fall back to the
-    /// factory default (any value `<= 0` does); the sanctioned write path
-    /// (set-speed API) rejects it (FIX-раунд 1.5 #6).
-    pub speed: f64,
+    /// invalid input: it is rejected by [`Rover::set_speed`] (the only
+    /// sanctioned write path, FIX-раунд 1.5 #6).
+    pub(crate) speed: f64,
     /// Queued commands, front executes first. *Inputs*, not physics:
     /// excluded from the state hash and from snapshots (see `hash.rs`).
-    pub commands: VecDeque<Command>,
-    /// Completed scans, oldest first. *Derived data*: excluded from the
-    /// state hash and from snapshots (see `hash.rs`).
-    pub scan_buffer: Vec<ScanResult>,
+    pub(crate) commands: VecDeque<Command>,
+    /// Completed scans, oldest first, capped at
+    /// [`MAX_SCAN_BUFFER`](crate::rover::MAX_SCAN_BUFFER). *Derived data*:
+    /// excluded from the state hash and from snapshots (see `hash.rs`).
+    pub(crate) scan_buffer: Vec<ScanResult>,
     /// Progress of the in-progress command: ticks left for the current
     /// Scan (crate-internal; reset when any command completes).
     pub(crate) remaining_ticks: u64,
 }
 
+/// Invalid value for [`Rover::set_speed`] (FIX-раунд 1.5 #6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedError {
+    /// NaN or ±∞.
+    NotFinite,
+    /// Speed must be `>= 0.0` (`0.0` = factory default).
+    Negative,
+}
+
+impl std::fmt::Display for SpeedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFinite => write!(f, "speed is not finite"),
+            Self::Negative => write!(f, "speed must be >= 0.0"),
+        }
+    }
+}
+
+impl std::error::Error for SpeedError {}
+
 impl Rover {
+    /// Entity id.
+    pub fn id(&self) -> RoverId {
+        self.id
+    }
+
+    /// Position in world units.
+    pub fn position(&self) -> Vec2 {
+        self.position
+    }
+
+    /// Heading (approximately unit direction vector).
+    pub fn heading(&self) -> Vec2 {
+        self.heading
+    }
+
+    /// Cruise-speed setting (`0.0` = factory default).
+    pub fn speed(&self) -> f64 {
+        self.speed
+    }
+
+    /// Queued commands, front first (read-only view).
+    pub fn commands(&self) -> &VecDeque<Command> {
+        &self.commands
+    }
+
+    /// Completed scan results, oldest first (read-only view).
+    pub fn scan_results(&self) -> &[ScanResult] {
+        &self.scan_buffer
+    }
+
+    /// Set the cruise speed. Rejects non-finite and negative values
+    /// (FIX-раунд 1.5 #6); `0.0` restores the factory default.
+    pub fn set_speed(&mut self, speed: f64) -> Result<(), SpeedError> {
+        if !speed.is_finite() {
+            Err(SpeedError::NotFinite)
+        } else if speed < 0.0 {
+            Err(SpeedError::Negative)
+        } else {
+            self.speed = speed;
+            Ok(())
+        }
+    }
+
+    /// Drop all queued commands (the in-progress command is dropped too:
+    /// inputs are cancelled, not finished).
+    pub fn clear_commands(&mut self) {
+        self.commands.clear();
+        self.remaining_ticks = 0;
+    }
+
+    /// Drain and return all completed scan results: read → cleared
+    /// (FIX-раунд 1.5 #4). The next scan starts filling the buffer anew.
+    pub fn take_scan_results(&mut self) -> Vec<ScanResult> {
+        std::mem::take(&mut self.scan_buffer)
+    }
+
     /// Advance the front command by one tick (crate-internal: `step`
     /// drives this in ascending-id order).
     fn advance(&mut self, completing_tick: u64) {
@@ -208,9 +289,29 @@ impl WorldState {
         self.rovers.get(&id)
     }
 
-    /// Look up a rover by id for mutation (used by commands in 1.5).
-    pub fn rover_mut(&mut self, id: RoverId) -> Option<&mut Rover> {
-        self.rovers.get_mut(&id)
+    /// Set a rover's cruise speed (see [`Rover::set_speed`]).
+    pub fn set_rover_speed(&mut self, id: RoverId, speed: f64) -> Result<(), SetSpeedError> {
+        match self.rovers.get_mut(&id) {
+            Some(rover) => rover.set_speed(speed).map_err(SetSpeedError::Invalid),
+            None => Err(SetSpeedError::UnknownRover),
+        }
+    }
+
+    /// Drop a rover's command queue; returns `true` if the rover exists.
+    pub fn clear_commands(&mut self, id: RoverId) -> bool {
+        match self.rovers.get_mut(&id) {
+            Some(rover) => {
+                rover.clear_commands();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Drain a rover's scan results (read → cleared); `None` if the id
+    /// is unknown.
+    pub fn take_scan_results(&mut self, id: RoverId) -> Option<Vec<ScanResult>> {
+        self.rovers.get_mut(&id).map(Rover::take_scan_results)
     }
 }
 
@@ -219,10 +320,35 @@ impl WorldState {
 /// `World` is the simulation entry point: create from a seed, then call
 /// [`World::step`] once per logical tick. The struct is cheap to clone and
 /// two clones stepped identically stay identical (determinism gate).
+///
+/// Integration contract (FIX-раунд 1.5 #5): the Godot bridge drives
+/// rovers ONLY through `push_commands` / `take_scan_results` /
+/// `set_rover_speed` / `clear_commands` and reads state through the
+/// accessors — direct mutation of rover internals is not part of the API.
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     state: WorldState,
 }
+
+/// Failure of [`World::set_rover_speed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetSpeedError {
+    /// No rover with this id.
+    UnknownRover,
+    /// Invalid speed value.
+    Invalid(SpeedError),
+}
+
+impl std::fmt::Display for SetSpeedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownRover => write!(f, "no rover with this id"),
+            Self::Invalid(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for SetSpeedError {}
 
 impl World {
     /// Create a fresh world from a seed via the deterministic generator
@@ -279,7 +405,8 @@ impl World {
         self.state.rover(id)
     }
 
-    /// Append commands to a rover's queue (delegates to the state).
+    /// Append commands to a rover's queue (script entry point;
+    /// see [`WorldState::push_commands`] for the semantics).
     pub fn push_commands(
         &mut self,
         id: RoverId,
@@ -288,10 +415,20 @@ impl World {
         self.state.push_commands(id, commands)
     }
 
-    /// Look up a rover by id for mutation (e.g. setting speed in tests,
-    /// command application in backlog 1.5).
-    pub fn rover_mut(&mut self, id: RoverId) -> Option<&mut Rover> {
-        self.state.rover_mut(id)
+    /// Set a rover's cruise speed (delegates to the state).
+    pub fn set_rover_speed(&mut self, id: RoverId, speed: f64) -> Result<(), SetSpeedError> {
+        self.state.set_rover_speed(id, speed)
+    }
+
+    /// Drop a rover's command queue; `true` if the rover exists.
+    pub fn clear_commands(&mut self, id: RoverId) -> bool {
+        self.state.clear_commands(id)
+    }
+
+    /// Drain a rover's scan results (read → cleared); `None` if the id
+    /// is unknown.
+    pub fn take_scan_results(&mut self, id: RoverId) -> Option<Vec<ScanResult>> {
+        self.state.take_scan_results(id)
     }
 }
 

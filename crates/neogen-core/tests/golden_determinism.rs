@@ -70,8 +70,8 @@ fn compute_entries() -> Vec<Entry> {
     let mut entries = Vec::new();
     for &seed in SEEDS.iter() {
         let mut world = World::new(seed);
-        let id = world.rovers().next().expect("rover exists").id;
-        let start = world.rovers().next().expect("rover exists").position;
+        let id = world.rovers().next().expect("rover exists").id();
+        let start = world.rovers().next().expect("rover exists").position();
         let script = script_for(start);
         for &checkpoint in CHECKPOINTS.iter() {
             while world.tick() < checkpoint {

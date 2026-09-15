@@ -61,8 +61,8 @@ fn moving_rover_advances_deterministically() {
     // → identical states.
     let mut a = World::new(5);
     let mut b = World::new(5);
-    let id = a.rovers().next().expect("rover exists").id;
-    let start = a.rover(id).expect("rover exists").position;
+    let id = a.rovers().next().expect("rover exists").id();
+    let start = a.rover(id).expect("rover exists").position();
     let target = start + Vec2::from_angle(FRAC_PI_2) * 200.0; // +Y, 200 away
     a.push_commands(id, [Command::MoveTo { target }])
         .expect("valid commands");
@@ -76,7 +76,7 @@ fn moving_rover_advances_deterministically() {
     assert_eq!(a.state(), b.state());
 
     // Cruise default is 2/tick: exactly 100 ticks for 200 units.
-    let position = a.rover(id).expect("rover exists").position;
+    let position = a.rover(id).expect("rover exists").position();
     let delta = position - start;
     assert!(delta.x.abs() < 1e-9, "drift on X: {delta:?}");
     assert!(
@@ -88,8 +88,8 @@ fn moving_rover_advances_deterministically() {
 
 #[test]
 fn id_issuance_is_sequential_and_seed_independent() {
-    let ids_a: Vec<_> = World::new(1).rovers().map(|r| r.id).collect();
-    let ids_b: Vec<_> = World::new(987_654_321).rovers().map(|r| r.id).collect();
+    let ids_a: Vec<_> = World::new(1).rovers().map(|r| r.id()).collect();
+    let ids_b: Vec<_> = World::new(987_654_321).rovers().map(|r| r.id()).collect();
     assert_eq!(ids_a, ids_b);
     assert_eq!(ids_a[0], RoverId::from_raw(1));
 
