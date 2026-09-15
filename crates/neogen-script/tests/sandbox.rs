@@ -1,10 +1,10 @@
 //! Backlog 2.2 — sandboxed environment: no os/io/load-family, runtime
 //! survives script errors.
 
-use neogen_script::{EvalValue, Runtime};
+use neogen_script::{EvalValue, Runtime, RuntimeConfig};
 
 fn fresh() -> Runtime {
-    Runtime::new().expect("runtime creates")
+    Runtime::new(RuntimeConfig::default()).expect("runtime creates")
 }
 
 #[test]

@@ -58,7 +58,7 @@ pub(crate) fn safe_libs() -> StdLib {
 ///
 /// Must be called exactly once, immediately after state creation, before
 /// any player code runs (see the init-order invariant in the module docs).
-pub(crate) fn install(lua: &Lua) -> Result<(), crate::Error> {
+pub(crate) fn install(lua: &Lua) -> Result<(), crate::ScriptError> {
     let globals = lua.globals();
     for name in REMOVED_GLOBALS {
         // raw: bypass any metatable; removing an absent key is a no-op.
