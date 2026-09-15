@@ -1,0 +1,50 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/editor_panel.gd" id="1_editor"]
+
+[node name="EditorPanel" type="CanvasLayer"]
+script = ExtResource("1_editor")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -480.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+
+[node name="Toolbar" type="HBoxContainer" parent="Panel/Margin/VBox"]
+
+[node name="Title" type="Label" parent="Panel/Margin/VBox/Toolbar"]
+text = "SCRIPTS"
+ theme_override_font_sizes/font_size = 14
+
+[node name="FileList" type="OptionButton" parent="Panel/Margin/VBox/Toolbar"]
+size_flags_horizontal = 3
+item_count = 0
+
+[node name="NewButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "New"
+
+[node name="SaveButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Save"
+
+[node name="RefreshButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Refresh"
+
+[node name="CodeEdit" type="CodeEdit" parent="Panel/Margin/VBox"]
+size_flags_vertical = 3
+placeholder_text = "select or create a script…"
+
+[node name="Status" type="Label" parent="Panel/Margin/VBox"]
+text = ""

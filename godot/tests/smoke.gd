@@ -61,10 +61,61 @@ func _initialize() -> void:
 	sim2.queue_free()
 	_speed_heading_checks()
 	_log_bridge_checks()
-	# The mirror checks need a live tree (physics frames); suspending
-	# _initialize itself with await breaks the tree setup, so run the
-	# coroutine deferred instead.
-	_rover_mirror_checks.call_deferred()
+	# Async suites run sequentially (editor first, then mirror): two
+	# interleaved coroutines shift frame timing and flake the mirror
+	# chase checks. Both are deferred - awaiting inside _initialize
+	# breaks the tree setup.
+	_editor_checks.call_deferred()
+
+
+func _editor_checks() -> void:
+	# Backlog 5.1: editor panel - create, edit, save, list; errors survive.
+	var panel: CanvasLayer = load("res://ui/editor_panel.tscn").instantiate()
+	root.add_child(panel)
+	await process_frame
+
+	var ScriptFiles = load("res://scripts/script_files.gd")
+	var files = ScriptFiles.new()
+	var probe := "smoke_editor_probe.lua"
+
+	# Clean probe remnants, then create through the panel.
+	files.remove(probe)
+	panel._on_new_pressed()
+	var created: String = panel._current_file
+	check(created.ends_with(".lua"), "new file created: %s" % created)
+
+	# setText -> save -> disk matches (full-rewrite MVP).
+	var text := "print('from editor panel')
+"
+	panel.code_edit.text = text
+	check(panel.save_current() == OK, "save returns OK")
+	check(files.read(created) == text, "disk content matches the editor text")
+
+	# The dropdown lists the created file.
+	var listed := false
+	for i in panel.file_list.item_count:
+		if panel.file_list.get_item_text(i) == created:
+			listed = true
+	check(listed, "file list shows the created file")
+
+	# Refresh re-scans: file still there after a manual refresh.
+	panel.refresh_files(created)
+	check(panel._current_file == created, "refresh keeps the selection")
+	check(panel.code_edit.text == text, "refresh reloads the disk text")
+
+	# Unsafe names are rejected without crashing anything.
+	check(
+		files.write("../escape.lua", "x") == ERR_INVALID_PARAMETER,
+		"traversal name rejected"
+	)
+	check(files.read("../escape.lua") == "", "traversal read rejected")
+	panel._set_status("probe done")
+	check(panel.status.text == "probe done", "status line works")
+
+	files.remove(created)
+	panel.refresh_files()
+	panel.queue_free()
+	await _rover_mirror_checks()
 
 
 func _speed_heading_checks() -> void:
