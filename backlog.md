@@ -21,7 +21,7 @@
   - Шаги: `git init`; .gitignore (Rust target, `.godot/`, временные файлы Godot); README с одной строкой сути проекта; ARCHITECTURE.md с зафиксированными гейтами из этого бэклога.
   - DoD: `git log` содержит первый коммит; `git status` чистый; каталоги существуют.
 
-- [ ] **0.2. Cargo workspace с пустым крейтом симуляции** — S, риск: низкий
+- [x] **0.2. Cargo workspace с пустым крейтом симуляции** — S, риск: низкий ✅ `3472c95`
   - Файлы: корневой `Cargo.toml` (workspace, members: `crates/neogen-core`), `crates/neogen-core/Cargo.toml`, `crates/neogen-core/src/lib.rs`, `crates/neogen-core/tests/smoke.rs`.
   - Шаги: workspace + крейт `neogen-core` (edition 2021/2024, без внешних зависимостей); тривиальный lib + smoke-тест.
   - DoD: `cargo test -p neogen-core` зелёный; `cargo clippy --workspace -- -D warnings` чистый.
