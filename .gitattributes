@@ -13,6 +13,7 @@
 *.godot text eol=lf
 *.json  text eol=lf
 *.gitignore text eol=lf
+.gitattributes text eol=lf
 
 # Binaries: never touch.
 *.png  binary
