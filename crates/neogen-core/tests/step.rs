@@ -60,11 +60,13 @@ fn moving_rover_advances_deterministically() {
     let mut a = World::new(5);
     let mut b = World::new(5);
     let id = a.rovers().next().expect("rover exists").id;
+    let start = a.rover(id).expect("rover exists").position;
     for world in [&mut a, &mut b] {
         let rover = world.rover_mut(id).expect("rover exists");
         rover.heading = FRAC_PI_2; // +Y
         rover.speed = 2.0; // world units per tick
     }
+    assert_eq!(start, b.rover(id).expect("rover exists").position);
     for _ in 0..100 {
         a.step();
         b.step();
@@ -72,10 +74,11 @@ fn moving_rover_advances_deterministically() {
     assert_eq!(a.state(), b.state());
 
     let position = a.rover(id).expect("rover exists").position;
-    assert!(position.x.abs() < 1e-9, "drift on X: {position:?}");
+    let delta = position - start;
+    assert!(delta.x.abs() < 1e-9, "drift on X: {delta:?}");
     assert!(
-        (position.y - 200.0).abs() < 1e-9,
-        "Y after 100 ticks: {position:?}"
+        (delta.y - 200.0).abs() < 1e-9,
+        "Y delta after 100 ticks: {delta:?}"
     );
 }
 

@@ -2,8 +2,10 @@
 
 use std::collections::BTreeMap;
 
+use crate::generate::generate_world;
 use crate::ids::{IdIssuer, RoverId};
 use crate::math::Vec2;
+use crate::rng::Rng;
 
 /// A rover entity.
 ///
@@ -51,9 +53,36 @@ pub struct WorldState {
     rovers: BTreeMap<RoverId, Rover>,
     /// Sequential id issuer (see [`crate::ids`]).
     id_issuer: IdIssuer,
+    /// World RNG, seeded from the seed at generation and advanced by every
+    /// draw. Its position in the stream is part of the state (and of the
+    /// future snapshot format, backlog 1.4) so that continuation after a
+    /// save/load draws the same numbers as an uninterrupted run.
+    rng: Rng,
 }
 
 impl WorldState {
+    /// Empty world state for a seed: tick 0, fresh id issuer, RNG seeded
+    /// from the seed. Used by [`crate::generate::generate_world`].
+    pub(crate) fn empty(seed: u64) -> Self {
+        Self {
+            tick: 0,
+            seed,
+            rovers: BTreeMap::new(),
+            id_issuer: IdIssuer::new(),
+            rng: Rng::from_seed(seed),
+        }
+    }
+
+    /// The world RNG (read-only view; see the field docs).
+    pub fn rng(&self) -> &Rng {
+        &self.rng
+    }
+
+    /// The world RNG for drawing (crate-internal: draws are part of the
+    /// generation/simulation format and must stay ordered).
+    pub(crate) fn rng_mut(&mut self) -> &mut Rng {
+        &mut self.rng
+    }
     /// Spawn a rover with the given start pose and return its id.
     ///
     /// Ids come from the sequential issuer, so spawn order alone decides
@@ -97,17 +126,11 @@ pub struct World {
 }
 
 impl World {
-    /// Create a fresh world from a seed: one rover parked at the origin,
-    /// heading +X, speed 0.
+    /// Create a fresh world from a seed via the deterministic generator
+    /// ([`crate::generate::generate_world`]): one parked rover at a seeded
+    /// position on the starting pad.
     pub fn new(seed: u64) -> Self {
-        let mut state = WorldState {
-            tick: 0,
-            seed,
-            rovers: BTreeMap::new(),
-            id_issuer: IdIssuer::new(),
-        };
-        state.spawn_rover(Vec2::ZERO, 0.0);
-        Self { state }
+        Self::from_state(generate_world(seed))
     }
 
     /// Resume a world from a state snapshot (continuation of a clone).
@@ -172,17 +195,22 @@ mod tests {
         assert_eq!(world.seed(), 7);
         let rovers: Vec<_> = world.rovers().collect();
         assert_eq!(rovers.len(), 1);
-        assert_eq!(rovers[0].position, Vec2::ZERO);
-        assert_eq!(rovers[0].speed, 0.0);
+        let rover = rovers[0];
+        // Parked on the starting pad (position itself is seeded — 1.2).
+        let bound = crate::generate::START_PAD_HALF_SIZE;
+        assert!((-bound..bound).contains(&rover.position.x));
+        assert!((-bound..bound).contains(&rover.position.y));
+        assert_eq!(rover.speed, 0.0);
     }
 
     #[test]
-    fn parked_rover_stays_at_origin() {
+    fn parked_rover_stays_put() {
         let mut world = World::new(1);
+        let start = world.rovers().next().expect("rover exists").position;
         for _ in 0..10 {
             world.step();
         }
         let rover = world.rovers().next().expect("rover exists");
-        assert_eq!(rover.position, Vec2::ZERO);
+        assert_eq!(rover.position, start);
     }
 }
