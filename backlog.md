@@ -89,7 +89,7 @@
 
 **Критерий готовности фазы:** `cargo test -p neogen-script`: скрипт двигает ровера в тестовом мире через API (`move/scan/act/print`); вечный цикл упирается в budget и не роняет сим; `os/io` недоступны; два скрипта исполняются конкурентно и детерминированно; скрипты читаются из папки.
 
-- [ ] **2.1. Подключение mlua, первый запуск Lua** — S, риск: низкий
+- [x] **2.1. Подключение mlua, первый запуск Lua** — S, риск: низкий ✅ `e20cf53`
   - Файлы: `crates/neogen-script/Cargo.toml` (+ workspace member), `src/lib.rs`, `tests/hello.rs`.
   - Шаги: зависимость `mlua` (features: `lua54`, `vendored`; без `async`); `Runtime::new()` → создание `Lua`; прогон строки `return 1 + 1`.
   - DoD: `cargo test -p neogen-script` зелёный; vendored-сборка Lua проходит в CI.
