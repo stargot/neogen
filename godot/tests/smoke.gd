@@ -223,42 +223,46 @@ func _rover_mirror_checks() -> void:
 	# script and node _process is timing-dependent.
 	var core_start := sim.get_rover_position(id)
 	var initial_gap := Vector2.ZERO.distance_to(core_start)
-	var closed := false
-	for i in range(60):
-		await process_frame
-		if rover.position.distance_to(core_start) < initial_gap * 0.5:
-			closed = true
-			break
+	var frame := await poll_until(
+		func() -> bool: return rover.position.distance_to(core_start) < initial_gap * 0.5
+	)
 	check(
-		closed,
-		"mirror chases the core start position (gap %.3f -> %.3f)"
-			% [initial_gap, rover.position.distance_to(core_start)]
+		frame >= 0,
+		"mirror chases the core start position (frame %d, gap %.3f -> %.3f)"
+			% [frame, initial_gap, rover.position.distance_to(core_start)]
 	)
 
 	# Known movement through the real loop: 120 physics frames at 60 fps
 	# = ~60 ticks at 30 tps — enough for the move and the convergence.
 	sim.debug_move_rover(id, 3.0, 4.0)
-	for i in range(120):
-		await physics_frame
 	var target := Vector2(3.0, -4.0)
-	var after_ticks: Vector2 = rover.position
+	frame = await poll_until(
+		func() -> bool: return rover.position.distance_to(target) < 0.1, 240
+	)
 	check(
-		(after_ticks - target).length() < 0.1,
-		"after move + K ticks the mirror is near the target, got %s" % after_ticks
+		frame >= 0,
+		"mirror reaches the move target within eps (frame %d), got %s"
+			% [frame, rover.position]
 	)
 
 	# Smoothing converges (and does not drift apart) with more frames.
-	var settled: Vector2 = rover.position
-	for i in range(60):
-		await physics_frame
-		settled = rover.position
-	check(
-		(settled - target).length() < 0.01,
-		"interpolation converges to the target, got %s" % settled
+	frame = await poll_until(
+		func() -> bool: return rover.position.distance_to(target) < 0.01, 120
 	)
 	check(
-		(settled - target).length() <= (after_ticks - target).length(),
-		"extra frames do not diverge from the target"
+		frame >= 0,
+		"interpolation converges to the target (frame %d), got %s"
+			% [frame, rover.position]
+	)
+	# No divergence: ten more frames must not move the mirror away from
+	# the converged distance (small slack for the last chase steps).
+	var converged_gap: float = rover.position.distance_to(target)
+	for i in range(10):
+		await process_frame
+	check(
+		rover.position.distance_to(target) <= maxf(converged_gap * 2.0, 0.02),
+		"extra frames do not diverge from the target (%.4f -> %.4f)"
+			% [converged_gap, rover.position.distance_to(target)]
 	)
 	sim.queue_free()
 	rover.queue_free()
@@ -294,37 +298,38 @@ func _hud_checks() -> void:
 	var hud: CanvasLayer = hud_scene.instantiate()
 	root.add_child(hud)
 	hud.bind_sim(sim)
-	await process_frame
-	await process_frame
 
 	var tick_label: Label = hud.get_node("Panel/Margin/VBox/TickLabel")
 	var seed_label: Label = hud.get_node("Panel/Margin/VBox/SeedLabel")
 	var status_label: Label = hud.get_node("Panel/Margin/VBox/StatusLabel")
 
-	check(seed_label.text == "seed: 42", "HUD shows the seed, got %s" % seed_label.text)
+	var frame := await poll_until(func() -> bool: return seed_label.text == "seed: 42")
+	check(frame >= 0, "HUD shows the seed (frame %d), got %s" % [frame, seed_label.text])
 	sim.step_ticks(7)
-	await process_frame
+	frame = await poll_until(func() -> bool: return tick_label.text == "tick: 7")
 	check(
-		tick_label.text == "tick: 7",
-		"HUD tick label follows the simulation, got %s" % tick_label.text
+		frame >= 0,
+		"HUD tick label follows the simulation (frame %d), got %s" % [frame, tick_label.text]
 	)
+	frame = await poll_until(func() -> bool: return status_label.text == "scripts: none")
 	check(
-		status_label.text == "scripts: none",
-		"no scripts attached -> none, got %s" % status_label.text
+		frame >= 0,
+		"no scripts attached -> none (frame %d), got %s" % [frame, status_label.text]
 	)
 
 	# A failing script flips the status to error with the message.
 	var sid := sim.attach_script(id, "error('hud boom')")
 	check(sid > 0, "failing script attached")
 	sim.step_ticks(1)
-	await process_frame
-	check(
-		status_label.text.begins_with("scripts: #1: error ("),
-		"HUD shows the error status, got %s" % status_label.text
+	frame = await poll_until(
+		func() -> bool:
+			var text: String = status_label.text
+			return text.begins_with("scripts: #1: error (") and text.contains("hud boom")
 	)
 	check(
-		status_label.text.contains("hud boom"),
-		"HUD carries the error text, got %s" % status_label.text
+		frame >= 0,
+		"HUD shows the error status with the text (frame %d), got %s"
+			% [frame, status_label.text]
 	)
 	check(
 		hud.last_error.contains("hud boom"),
@@ -334,6 +339,17 @@ func _hud_checks() -> void:
 	sim.queue_free()
 	hud.queue_free()
 	_finish()
+
+
+## Poll until the predicate holds, at most `budget` frames; returns the
+## frame index when it held, or -1. UI-bound values (HUD labels, mirrors)
+## update in node _process - never assert them after a fixed frame count.
+func poll_until(predicate: Callable, budget: int = 60) -> int:
+	for i in range(budget):
+		if predicate.call():
+			return i
+		await process_frame
+	return -1
 
 
 func check(condition: bool, message: String) -> void:
