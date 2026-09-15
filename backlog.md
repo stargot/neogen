@@ -85,6 +85,13 @@
 
 ---
 
+## FIX-раунд фазы 2 (после ревью: REQUEST CHANGES — 1 BLOCKER + 1 MAJOR + 4 MINOR/NIT + гейты)
+
+Все 9 находок закрыты двумя коммитами:
+
+- [x] **FIX-A — безопасность и детерминизм** ✅ `ae8c400` — BLOCKER: coroutine.create/wrap/resume/close вырезаны (обход per-thread hook), осталены yield/status/isyieldable/running; MAJOR: math.random/randomseed удалены (недетерминизм Lua 5.4); memory_limit 32 МБ на стейт (RuntimeConfig.memory_limit, string.rep → Err, не OOM); per-script копии пяти lib-таблиц (отравление string.format не достигает соседей).
+- [x] **FIX-B — API-гигиена и гейты фазы 3** ✅ `7d2e210` — кап MAX_COMMANDS_PER_TICK=64 на resume (спам move → Failed, очередь ≤ 64); ScanReport сортирован; StoreError::Io отделён от DirectoryMissing; формула consumed задокументирована + RuntimeConfig::normalized(); ScriptState::Stopped + stop_script/detach_script, геттеры script_source/script_rover, eval → #[doc(hidden)].
+
 ## Фаза 2 — Lua-рантайм (крейт `neogen-script`)
 
 **Критерий готовности фазы:** `cargo test -p neogen-script`: скрипт двигает ровера в тестовом мире через API (`move/scan/act/print`); вечный цикл упирается в budget и не роняет сим; `os/io` недоступны; два скрипта исполняются конкурентно и детерминированно; скрипты читаются из папки.
