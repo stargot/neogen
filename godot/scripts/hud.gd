@@ -19,7 +19,11 @@ var _seed_text := "seed: —"
 
 
 func _ready() -> void:
-	bind_sim(get_node_or_null("../Sim"))
+	# Explicit bind wins over auto-wiring: in tests (and any embedding
+	# that wires the HUD before it enters the tree) _ready may fire after
+	# bind_sim was already called - the auto-bind must not override it.
+	if _sim == null:
+		bind_sim(get_node_or_null("../Sim"))
 
 
 # Public for tests: bind any SimNode (the default wiring uses ../Sim).

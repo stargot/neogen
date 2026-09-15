@@ -296,8 +296,14 @@ func _hud_checks() -> void:
 
 	var hud_scene: PackedScene = load("res://ui/hud.tscn")
 	var hud: CanvasLayer = hud_scene.instantiate()
-	root.add_child(hud)
+	# Bind BEFORE add_child: in a headless SceneTree script, _ready of
+	# added nodes fires on the first frame - a later auto-bind to the
+	# scene's own Sim would race this explicit one (that was the HUD
+	# flake: the label froze at the main Sim's tick). hud.gd also guards
+	# with "explicit bind wins", making the order deterministic either
+	# way.
 	hud.bind_sim(sim)
+	root.add_child(hud)
 
 	var tick_label: Label = hud.get_node("Panel/Margin/VBox/TickLabel")
 	var seed_label: Label = hud.get_node("Panel/Margin/VBox/SeedLabel")
