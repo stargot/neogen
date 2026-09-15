@@ -33,7 +33,7 @@
   - DoD: `godot --headless --quit` (путь к Godot из README) завершается без ошибок импорта.
   - Зависит от: 0.1.
 
-- [ ] **0.4. CI (GitHub Actions)** — S, риск: низкий
+- [x] **0.4. CI (GitHub Actions)** — S, риск: низкий ✅ `90033ff` (DoD-проверка на push отложена: ожидается remote от пользователя)
   - Файлы: `.github/workflows/ci.yml`.
   - Шаги: джоба Rust: checkout → `cargo fmt --check` → `cargo clippy --workspace -- -D warnings` → `cargo test --workspace`; (опционально, отдельной джобой) скачать Godot-бин и `godot --headless --quit` в `godot/`.
   - DoD: workflow зелёный на push в main.
