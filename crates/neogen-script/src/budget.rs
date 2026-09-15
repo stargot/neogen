@@ -107,7 +107,10 @@ impl Script {
         id: u32,
         source: &str,
     ) -> Result<Self, ScriptError> {
-        let function = lua.load(source).into_function()?;
+        let function = lua
+            .load(source)
+            .into_function()
+            .map_err(|error| ScriptError::compile(&error))?;
         Self::spawn_function(lua, config, id, function)
     }
 
@@ -119,7 +122,9 @@ impl Script {
         id: u32,
         function: mlua::Function,
     ) -> Result<Self, ScriptError> {
-        let thread = lua.create_thread(function)?;
+        let thread = lua
+            .create_thread(function)
+            .map_err(|error| ScriptError::runtime(id, 0, &error))?;
         let budget = install_hook(&thread, config)?;
         Ok(Self {
             id,
@@ -184,7 +189,9 @@ impl Script {
                     TickOutcome::Yielded(value.into())
                 }
             }
-            Err(error) => return Err(ScriptError::Lua(error)),
+            Err(error) => {
+                return Err(ScriptError::runtime(self.id, self.tick, &error));
+            }
         };
         Ok(outcome)
     }
@@ -201,16 +208,18 @@ fn install_hook(thread: &Thread, config: RuntimeConfig) -> Result<SharedBudget, 
         every_nth_instruction: Some(config.hook_interval.max(1)),
         ..HookTriggers::default()
     };
-    thread.set_hook(triggers, move |_lua, _debug| {
-        let mut budget = hook_budget.borrow_mut();
-        if budget.intervals_left == 0 {
-            // Suspend the coroutine at this instruction boundary —
-            // resumable, not an error (see module docs).
-            budget.exceeded = true;
-            return Ok(VmState::Yield);
-        }
-        budget.intervals_left -= 1;
-        Ok(VmState::Continue)
-    })?;
+    thread
+        .set_hook(triggers, move |_lua, _debug| {
+            let mut budget = hook_budget.borrow_mut();
+            if budget.intervals_left == 0 {
+                // Suspend the coroutine at this instruction boundary —
+                // resumable, not an error (see module docs).
+                budget.exceeded = true;
+                return Ok(VmState::Yield);
+            }
+            budget.intervals_left -= 1;
+            Ok(VmState::Continue)
+        })
+        .map_err(|error| ScriptError::runtime(0, 0, &error))?;
     Ok(budget)
 }

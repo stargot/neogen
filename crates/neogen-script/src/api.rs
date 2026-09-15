@@ -131,6 +131,9 @@ pub(crate) fn install(
     rover: RoverId,
     script_id: u32,
 ) -> Result<(), ScriptError> {
+    // mlua failures here are host-side setup problems, not script errors:
+    // tick 0, the script's id.
+    let fail = |error: mlua::Error| ScriptError::runtime(script_id, 0, &error);
     let move_ctx = context.clone();
     env.set(
         "move",
@@ -139,8 +142,10 @@ pub(crate) fn install(
                 target: Vec2::new(x, y),
             };
             push_validated(&move_ctx, rover, command)
-        })?,
-    )?;
+        })
+        .map_err(fail)?,
+    )
+    .map_err(fail)?;
 
     let scan_ctx = context.clone();
     env.set(
@@ -148,8 +153,10 @@ pub(crate) fn install(
         lua.create_function(move |_lua, radius: f64| {
             let command = Command::Scan { radius };
             push_validated(&scan_ctx, rover, command)
-        })?,
-    )?;
+        })
+        .map_err(fail)?,
+    )
+    .map_err(fail)?;
 
     let peek_ctx = context.clone();
     env.set(
@@ -160,8 +167,10 @@ pub(crate) fn install(
                 None => Ok(Value::Nil),
                 Some(result) => scan_result_to_table(lua, &result),
             }
-        })?,
-    )?;
+        })
+        .map_err(fail)?,
+    )
+    .map_err(fail)?;
 
     let act_ctx = context.clone();
     env.set(
@@ -177,8 +186,10 @@ pub(crate) fn install(
             let _ = params;
             // Wire-shape stub: phase 8 maps kinds to real commands.
             push_validated(&act_ctx, rover, Command::Noop)
-        })?,
-    )?;
+        })
+        .map_err(fail)?,
+    )
+    .map_err(fail)?;
 
     let print_ctx = context;
     env.set(
@@ -194,8 +205,10 @@ pub(crate) fn install(
                 text,
             });
             Ok(())
-        })?,
-    )?;
+        })
+        .map_err(fail)?,
+    )
+    .map_err(fail)?;
 
     Ok(())
 }

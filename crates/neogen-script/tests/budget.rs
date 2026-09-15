@@ -160,8 +160,10 @@ fn script_runtime_error_is_reported() {
         .create_script("error('boom on purpose')")
         .expect("compiles");
     match script.resume_tick() {
-        Err(ScriptError::Lua(err)) => assert!(err.to_string().contains("boom"), "{err}"),
-        other => panic!("expected Lua error, got {other:?}"),
+        Err(ScriptError::Runtime { message, .. }) => {
+            assert!(message.contains("boom"), "{message}")
+        }
+        other => panic!("expected Runtime error, got {other:?}"),
     }
     assert!(script.is_finished());
 }

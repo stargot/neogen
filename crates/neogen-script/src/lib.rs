@@ -2,21 +2,24 @@
 //!
 //! `neogen-script` owns the Lua 5.4 runtime (via `mlua`, vendored — no
 //! system Lua) and hosts the script sandbox (2.2), the per-tick instruction
-//! budget (2.3), the `move/scan/act/print` API (2.4) and the multi-script
-//! scheduler (2.6). Like `neogen-core`, this crate never depends on Godot
-//! or GDExtension bindings: the simulation stays headless-testable, the
-//! bridge consumes it from `neogen-gdext`.
+//! budget (2.3), the `move/scan/act/print` API (2.4), script error
+//! handling and lifecycle (2.5) and the multi-script scheduler (2.6).
+//! Like `neogen-core`, this crate never depends on Godot or GDExtension
+//! bindings: the simulation stays headless-testable, the bridge consumes
+//! it from `neogen-gdext`.
 //!
 //! The runtime is deliberately **synchronous** (no mlua `async` feature):
 //! scripts advance in discrete deterministic ticks, not on wall-clock I/O.
 
 mod api;
 mod budget;
+mod errors;
+mod lifecycle;
 mod logbuffer;
 mod sandbox;
 
-use core::fmt;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use mlua::{Lua, LuaOptions};
@@ -26,58 +29,9 @@ pub use api::{ACT_KINDS, ScriptContext, WorldContext};
 pub use budget::{
     DEFAULT_HOOK_INTERVAL, DEFAULT_INSTRUCTIONS_PER_TICK, RuntimeConfig, Script, TickOutcome,
 };
+pub use errors::{MAX_ERROR_TEXT, ScriptError};
+pub use lifecycle::ScriptState;
 pub use logbuffer::{LogBuffer, LogEntry, MAX_LOG_BUFFER};
-
-/// Failure inside the script runtime.
-///
-/// Phase 2.5 extends this into the full script-lifecycle error set.
-#[derive(Debug)]
-pub enum ScriptError {
-    /// An error raised by Lua itself.
-    Lua(mlua::Error),
-    /// The per-tick instruction allowance is spent. The coroutine is
-    /// *suspended, not killed* — the next `resume_tick` continues from the
-    /// same instruction.
-    BudgetExceeded {
-        /// Id of the script (sequential, issued by the `Runtime`).
-        script_id: u32,
-        /// Tick number of the exhausted resume.
-        tick: u64,
-        /// Instructions consumed this tick (multiple of the hook interval).
-        consumed: u64,
-    },
-}
-
-impl fmt::Display for ScriptError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lua(error) => write!(f, "{error}"),
-            Self::BudgetExceeded {
-                script_id,
-                tick,
-                consumed,
-            } => write!(
-                f,
-                "script {script_id} exhausted its budget of instructions at tick {tick}                  ({consumed} consumed); suspended, not killed"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ScriptError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Lua(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-impl From<mlua::Error> for ScriptError {
-    fn from(error: mlua::Error) -> Self {
-        Self::Lua(error)
-    }
-}
 
 /// Result of evaluating a Lua chunk, mapped to a small crate-owned enum so
 /// the public API does not leak `mlua` types (the bridge should not have
@@ -110,10 +64,6 @@ impl From<mlua::Value> for EvalValue {
 }
 
 /// Owner of the Lua state for one script host.
-///
-/// Intentionally cheap to extend: the sandbox globals (2.2), instruction
-/// budget hooks (2.3) and API functions (2.4) will all live on the runtime
-/// this struct owns — not in free functions.
 pub struct Runtime {
     lua: Lua,
     config: RuntimeConfig,
@@ -127,7 +77,8 @@ impl Runtime {
     /// Fallible on purpose: state creation and sandbox installation are
     /// part of the contract (2.1 reserved the `Result`).
     pub fn new(config: RuntimeConfig) -> Result<Self, ScriptError> {
-        let lua = Lua::new_with(sandbox::safe_libs(), LuaOptions::default())?;
+        let lua = Lua::new_with(sandbox::safe_libs(), LuaOptions::default())
+            .map_err(|error| ScriptError::runtime(0, 0, &error))?;
         sandbox::install(&lua)?;
         Ok(Self {
             lua,
@@ -146,10 +97,6 @@ impl Runtime {
         }
     }
 
-    /// Evaluate a chunk and return its `return` value.
-    ///
-    /// This is the raw escape hatch (tests, REPL-style experiments);
-    /// player scripts will run through the tick-driven scheduler (2.3/2.6).
     /// Compile a player script into a budgeted coroutine (see
     /// [`budget`] for the mechanics). Compilation happens now: syntax
     /// errors surface before the first tick.
@@ -163,10 +110,33 @@ impl Runtime {
         self.config
     }
 
+    /// Evaluate a chunk and return its `return` value.
+    ///
+    /// The raw escape hatch (tests, REPL-style experiments): runs on the
+    /// shared sandboxed globals with no script identity — errors carry
+    /// `script_id = 0` (ids start at 1). Player scripts run through
+    /// [`ScriptHost`] instead.
     pub fn eval(&self, chunk: &str) -> Result<EvalValue, ScriptError> {
-        let value = self.lua.load(chunk).eval::<mlua::Value>()?;
+        let value = self
+            .lua
+            .load(chunk)
+            .eval::<mlua::Value>()
+            .map_err(|error| match &error {
+                mlua::Error::SyntaxError { .. } => ScriptError::compile(&error),
+                _ => ScriptError::runtime(0, 0, &error),
+            })?;
         Ok(value.into())
     }
+}
+
+/// A script registered with the host's tick loop (see
+/// [`ScriptHost::attach_script`]).
+struct ManagedScript {
+    script: Script,
+    rover: RoverId,
+    #[allow(dead_code)]
+    source: String,
+    state: ScriptState,
 }
 
 /// Host binding the Lua runtime to a real `neogen-core` world (backlog 2.4).
@@ -182,9 +152,19 @@ impl Runtime {
 /// …) are shared by reference, so a hostile script could still poison a
 /// library table for everyone; per-script proxies are a later hardening
 /// step if needed.
+///
+/// Two driving modes:
+/// - **Managed scripts** ([`attach_script`]) advance inside
+///   [`ScriptHost::step_world`] — this is the player-facing path the
+///   scheduler (2.6) formalizes. A failing script stops only itself
+///   ([`ScriptState::Failed`]); every other script and the world tick on.
+/// - **Manual scripts** ([`create_script`]) return the [`Script`] handle
+///   for the caller to resume — tests and bridge-side custom driving
+///   until 2.6 unifies the two.
 pub struct ScriptHost {
     runtime: Runtime,
     context: api::SharedContext,
+    managed: BTreeMap<u32, ManagedScript>,
 }
 
 impl ScriptHost {
@@ -193,45 +173,164 @@ impl ScriptHost {
         Ok(Self {
             runtime: Runtime::new(config)?,
             context: Rc::new(RefCell::new(WorldContext::new(world))),
+            managed: BTreeMap::new(),
         })
     }
 
-    /// Compile a script bound to a rover: sandboxed env + per-script API
-    /// (`move/scan/act/print/scan_result`) + budgeted coroutine.
+    /// Compile a script bound to a rover and hand the handle to the caller
+    /// (manual driving; see the struct docs).
     pub fn create_script(&mut self, rover: RoverId, source: &str) -> Result<Script, ScriptError> {
+        self.runtime.next_script_id = self.runtime.next_script_id.saturating_add(1);
+        let id = self.runtime.next_script_id;
+        self.build_script(rover, source, id)
+    }
+
+    /// Compile a script, register it in the tick loop and return its id.
+    ///
+    /// A compile error here changes nothing: the id is consumed, nothing
+    /// is registered, the world is untouched.
+    pub fn attach_script(&mut self, rover: RoverId, source: &str) -> Result<u32, ScriptError> {
+        self.runtime.next_script_id = self.runtime.next_script_id.saturating_add(1);
+        let id = self.runtime.next_script_id;
+        let script = self.build_script(rover, source, id)?;
+        self.managed.insert(
+            id,
+            ManagedScript {
+                script,
+                rover,
+                source: source.to_string(),
+                state: ScriptState::Running,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Restart a managed script with new source: fresh chunk, coroutine
+    /// and counters, same script id, same rover, fresh env isolation.
+    ///
+    /// **Restart is manual by design** (MVP policy — see [`lifecycle`]):
+    /// automatic restart policies may arrive post-MVP. If the new source
+    /// fails to compile, the script keeps its previous state and the
+    /// error is returned; nothing else changes.
+    pub fn restart_script(&mut self, id: u32, source: &str) -> Result<(), ScriptError> {
+        let Some(old) = self.managed.get(&id) else {
+            return Err(ScriptError::Runtime {
+                script_id: id,
+                tick: 0,
+                message: format!("restart_script: no managed script with id {id}"),
+            });
+        };
+        let rover = old.rover;
+        let replacement = self.build_script(rover, source, id)?;
+        if let Some(managed) = self.managed.get_mut(&id) {
+            managed.script = replacement;
+            managed.source = source.to_string();
+            managed.state = ScriptState::Running;
+        }
+        Ok(())
+    }
+
+    /// Lifecycle state of a managed script.
+    pub fn script_state(&self, id: u32) -> Option<ScriptState> {
+        self.managed.get(&id).map(|m| m.state.clone())
+    }
+
+    /// Ids of all managed scripts, ascending.
+    pub fn managed_ids(&self) -> Vec<u32> {
+        self.managed.keys().copied().collect()
+    }
+
+    /// Build a budgeted coroutine with a private env and the script API.
+    fn build_script(
+        &mut self,
+        rover: RoverId,
+        source: &str,
+        id: u32,
+    ) -> Result<Script, ScriptError> {
         let lua = &self.runtime.lua;
 
         // Private environment: copy of the sandboxed globals (minus the
         // excluded keys), plus the per-script API.
-        let env = lua.create_table()?;
+        let env = lua
+            .create_table()
+            .map_err(|error| ScriptError::runtime(id, 0, &error))?;
         let globals = lua.globals();
         let mut copied = 0usize;
-        globals.for_each(|key: mlua::LuaString, value: mlua::Value| {
-            let name = key.to_string_lossy();
-            if name == "_G" || name == "_VERSION" {
-                return Ok(());
-            }
-            env.set(key, value)?;
-            copied += 1;
-            Ok(())
-        })?;
+        globals
+            .for_each(|key: mlua::LuaString, value: mlua::Value| {
+                let name = key.to_string_lossy();
+                if name == "_G" || name == "_VERSION" {
+                    return Ok(());
+                }
+                env.set(key, value)?;
+                copied += 1;
+                Ok(())
+            })
+            .map_err(|error| ScriptError::runtime(id, 0, &error))?;
         if copied == 0 {
-            return Err(ScriptError::Lua(mlua::Error::runtime(
-                "sandboxed globals are empty; refusing to build a script env",
-            )));
+            return Err(ScriptError::Runtime {
+                script_id: id,
+                tick: 0,
+                message: "sandboxed globals are empty; refusing to build a script env".into(),
+            });
         }
 
-        let script_id = self.runtime.next_script_id.saturating_add(1);
-        self.runtime.next_script_id = script_id;
         let context: Rc<RefCell<dyn ScriptContext>> = Rc::clone(&self.context) as _;
-        api::install(lua, &env, context, rover, script_id)?;
+        api::install(lua, &env, context, rover, id)?;
 
-        let function = lua.load(source).set_environment(env).into_function()?;
-        Script::spawn_function(lua, self.runtime.config, script_id, function)
+        let function = lua
+            .load(source)
+            .set_environment(env)
+            .into_function()
+            .map_err(|error| ScriptError::compile(&error))?;
+        Script::spawn_function(lua, self.runtime.config, id, function)
     }
 
-    /// Advance the world by one tick (scripts are resumed separately).
+    /// Advance one simulation tick: resume every alive managed script in
+    /// ascending-id order (deterministic), then step the world once.
+    ///
+    /// Failure policy: a script error moves *that* script to
+    /// [`ScriptState::Failed`] and records an `error: …` line in the log
+    /// buffer (world tick, script id, rover) — the tick loop, the world
+    /// and all other scripts are unaffected. Budget exhaustion is a pause
+    /// ([`ScriptState::SuspendedBudget`]), not a failure, and is not
+    /// logged.
     pub fn step_world(&mut self) {
+        let ids: Vec<u32> = self.managed.keys().copied().collect();
+        for id in ids {
+            // Only alive scripts are resumed: a dead coroutine (Finished
+            // or Failed) would error with "non-resumable" on every tick.
+            if !self.managed[&id].state.is_alive() {
+                continue;
+            }
+            let rover = self.managed[&id].rover;
+            let outcome = self
+                .managed
+                .get_mut(&id)
+                .expect("id taken from the map")
+                .script
+                .resume_tick();
+            let state = match outcome {
+                Ok(TickOutcome::Completed(_)) => ScriptState::Finished,
+                Ok(TickOutcome::Yielded(_)) => ScriptState::Running,
+                Err(ScriptError::BudgetExceeded { .. }) => ScriptState::SuspendedBudget,
+                Err(error) => {
+                    // Compile cannot occur here (scripts compile at
+                    // build); anything else is a script failure.
+                    let entry = LogEntry {
+                        tick: self.context.borrow().current_tick(),
+                        script_id: id,
+                        rover_id: rover,
+                        text: errors::log_line(&error),
+                    };
+                    self.context.borrow_mut().log(entry);
+                    ScriptState::Failed(error)
+                }
+            };
+            if let Some(managed) = self.managed.get_mut(&id) {
+                managed.state = state;
+            }
+        }
         self.context.borrow_mut().world_mut().step();
     }
 
@@ -273,9 +372,7 @@ impl ScriptHost {
     pub fn log_snapshot(&self) -> Vec<LogEntry> {
         self.context.borrow().logs().snapshot()
     }
-}
 
-impl ScriptHost {
     /// Test/bridge helper: state hash of the world (golden comparisons).
     pub fn world_state_hash(&self) -> u64 {
         neogen_core::state_hash(self.context.borrow().world().state())
@@ -298,6 +395,9 @@ mod tests {
     #[test]
     fn syntax_error_is_reported() {
         let runtime = Runtime::new(RuntimeConfig::default()).expect("runtime creates");
-        assert!(runtime.eval("return +").is_err());
+        match runtime.eval("return +") {
+            Err(ScriptError::Compile { .. }) => {}
+            other => panic!("expected Compile, got {other:?}"),
+        }
     }
 }

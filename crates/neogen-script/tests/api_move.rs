@@ -59,11 +59,10 @@ fn invalid_move_is_a_lua_error_and_poisons_nothing() {
 
     let mut script = host.create_script(rover, "move(0/0, 0)").expect("compiles");
     match script.resume_tick() {
-        Err(ScriptError::Lua(error)) => {
-            let message = error.to_string();
+        Err(ScriptError::Runtime { message, .. }) => {
             assert!(message.contains("finite"), "unclear message: {message}");
         }
-        other => panic!("expected Lua error, got {other:?}"),
+        other => panic!("expected Runtime error, got {other:?}"),
     }
 
     // The world is not poisoned: no command queued, hash unchanged,
@@ -133,10 +132,10 @@ fn negative_scan_radius_is_rejected() {
     let rover = sole_rover(&host);
     let mut script = host.create_script(rover, "scan(-1)").expect("compiles");
     match script.resume_tick() {
-        Err(ScriptError::Lua(error)) => {
-            assert!(error.to_string().contains("negative"), "{}", error);
+        Err(ScriptError::Runtime { message, .. }) => {
+            assert!(message.contains("negative"), "{message}");
         }
-        other => panic!("expected Lua error, got {other:?}"),
+        other => panic!("expected Runtime error, got {other:?}"),
     }
     assert_eq!(host.rover_queue_len(rover), Some(0));
 }
@@ -160,14 +159,13 @@ fn act_accepts_whitelist_and_rejects_unknown_kinds() {
         .create_script(rover, "act(\"nuke\")")
         .expect("compiles");
     match bad.resume_tick() {
-        Err(ScriptError::Lua(error)) => {
-            let message = error.to_string();
+        Err(ScriptError::Runtime { message, .. }) => {
             assert!(
                 message.contains("nuke") && message.contains("plant"),
                 "{message}"
             );
         }
-        other => panic!("expected Lua error, got {other:?}"),
+        other => panic!("expected Runtime error, got {other:?}"),
     }
     assert_eq!(ACT_KINDS, &["plant", "drain"]);
 }

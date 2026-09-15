@@ -65,7 +65,9 @@ pub(crate) fn install(lua: &Lua) -> Result<(), crate::ScriptError> {
     let globals = lua.globals();
     for name in REMOVED_GLOBALS {
         // raw: bypass any metatable; removing an absent key is a no-op.
-        globals.raw_remove(*name)?;
+        globals
+            .raw_remove(*name)
+            .map_err(|error| crate::ScriptError::runtime(0, 0, &error))?;
     }
     Ok(())
 }
