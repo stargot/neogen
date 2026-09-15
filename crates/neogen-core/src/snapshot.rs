@@ -154,6 +154,18 @@ pub fn to_bytes(state: &WorldState) -> Vec<u8> {
     out
 }
 
+/// Read one f64 and reject non-finite values: NaN/±inf in the payload
+/// would poison the physical state silently — the same contract
+/// `Command::validate` enforces on the input side.
+fn read_finite(r: &mut Reader<'_>, field: &'static str) -> Result<f64, SnapshotError> {
+    let value = f64::from_bits(r.read_u64()?);
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(SnapshotError::Malformed { reason: field })
+    }
+}
+
 /// Cursor over the input buffer for [`from_bytes`].
 struct Reader<'a> {
     data: &'a [u8],
@@ -196,7 +208,8 @@ impl Reader<'_> {
 ///
 /// Strictly validates everything the header and structure promise: magic,
 /// schema version, buffer length, per-rover plausibility (ids non-zero,
-/// unique, below the issuer watermark), and no trailing bytes.
+/// unique, below the issuer watermark; every f64 field finite), and no
+/// trailing bytes.
 pub fn from_bytes(data: &[u8]) -> Result<WorldState, SnapshotError> {
     let mut r = Reader::new(data);
 
@@ -248,11 +261,11 @@ pub fn from_bytes(data: &[u8]) -> Result<WorldState, SnapshotError> {
             });
         }
         let id = RoverId::from_raw(raw_id);
-        let x = f64::from_bits(r.read_u64()?);
-        let y = f64::from_bits(r.read_u64()?);
-        let heading_x = f64::from_bits(r.read_u64()?);
-        let heading_y = f64::from_bits(r.read_u64()?);
-        let speed = f64::from_bits(r.read_u64()?);
+        let x = read_finite(&mut r, "rover position.x is not finite")?;
+        let y = read_finite(&mut r, "rover position.y is not finite")?;
+        let heading_x = read_finite(&mut r, "rover heading.x is not finite")?;
+        let heading_y = read_finite(&mut r, "rover heading.y is not finite")?;
+        let speed = read_finite(&mut r, "rover speed is not finite")?;
         let rover = Rover {
             id,
             position: Vec2::new(x, y),

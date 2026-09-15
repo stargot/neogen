@@ -169,3 +169,37 @@ fn error_messages_are_readable() {
     .to_string();
     assert!(eof.contains("10") && eof.contains("4"), "{eof}");
 }
+
+#[test]
+fn non_finite_rover_fields_are_rejected() {
+    let bytes = to_bytes(World::new(1).state());
+    // First rover starts at offset 64: id (4 bytes) then five f64 fields.
+    // Patch each field with NaN bits one at a time.
+    const FIELD_OFFSETS: [usize; 5] = [68, 76, 84, 92, 100];
+    const FIELD_NAMES: [&str; 5] = [
+        "position.x",
+        "position.y",
+        "heading.x",
+        "heading.y",
+        "speed",
+    ];
+    for (&offset, &name) in FIELD_OFFSETS.iter().zip(&FIELD_NAMES) {
+        let mut bad = bytes.clone();
+        bad[offset..offset + 8].copy_from_slice(&f64::NAN.to_bits().to_le_bytes());
+        match from_bytes(&bad) {
+            Err(SnapshotError::Malformed { reason }) => {
+                assert!(reason.contains(name), "field {name}: {reason}");
+            }
+            other => panic!("field {name}: expected Malformed, got {other:?}"),
+        }
+        // Infinity is equally rejected.
+        let mut bad = bytes.clone();
+        bad[offset..offset + 8].copy_from_slice(&f64::INFINITY.to_bits().to_le_bytes());
+        assert!(
+            matches!(from_bytes(&bad), Err(SnapshotError::Malformed { .. })),
+            "field {name}: infinity accepted"
+        );
+    }
+    // Sanity: the untouched snapshot still decodes.
+    assert!(from_bytes(&bytes).is_ok());
+}
