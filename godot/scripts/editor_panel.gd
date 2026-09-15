@@ -9,6 +9,8 @@
 extends CanvasLayer
 
 const ScriptFiles = preload("res://scripts/script_files.gd")
+const LuaHighlighter = preload("res://scripts/lua_highlighter.gd")
+const LUA_API_PATH := "res://resources/lua_api.json"
 
 var _files := ScriptFiles.new()
 var _current_file := ""
@@ -26,7 +28,42 @@ func _ready() -> void:
 	save_button.pressed.connect(_on_save_pressed)
 	refresh_button.pressed.connect(_on_refresh_pressed)
 	file_list.item_selected.connect(_on_file_selected)
+
+	# Syntax highlighting (backlog 5.2): warm Lua palette.
+	code_edit.syntax_highlighter = LuaHighlighter.new()
+
+	# Code completion: player API signatures from resources/lua_api.json
+	# plus the Lua keywords; CodeEdit filters by the typed prefix.
+	code_edit.code_completion_enabled = true
+	code_edit.code_completion_requested.connect(_on_completion_requested)
+	_load_completions()
+
 	refresh_files()
+
+
+## Completion options populated once at ready (API names + keywords).
+var _completion_options: Array = []
+
+
+func _load_completions() -> void:
+	_completion_options.clear()
+	var api = load(LUA_API_PATH)
+	if api is JSON and api.data != null:
+		for entry in api.data.get("functions", []):
+			var signature: String = entry.get("signature", entry.get("name", ""))
+			var display: String = entry.get("name", signature)
+			# Multi-part names (coroutine.yield) complete on the last part.
+			if display.contains("."):
+				display = display.get_slice(".", 1)
+			_completion_options.append([CodeEdit.KIND_FUNCTION, display, display])
+	for word in LuaHighlighter.KEYWORDS:
+		_completion_options.append([CodeEdit.KIND_PLAIN_TEXT, word, word])
+
+
+func _on_completion_requested() -> void:
+	for option in _completion_options:
+		code_edit.add_code_completion_option(option[0], option[1], option[2])
+	code_edit.update_code_completion_options(false)
 
 
 func _unhandled_input(event: InputEvent) -> void:

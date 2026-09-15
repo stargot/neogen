@@ -112,6 +112,52 @@ func _editor_checks() -> void:
 	panel._set_status("probe done")
 	check(panel.status.text == "probe done", "status line works")
 
+	# Highlighter attached, keywords mapped to the palette (backlog 5.2).
+	var highlighter = panel.code_edit.syntax_highlighter
+	check(highlighter != null, "CodeEdit has a syntax highlighter")
+	if highlighter != null:
+		check(
+			highlighter.has_keyword_color("while") and highlighter.has_keyword_color("function"),
+			"highlighter knows Lua keywords"
+		)
+		check(
+			highlighter.get_keyword_color("while") == load("res://scripts/lua_highlighter.gd").KEYWORD_COLOR,
+			"keyword color comes from the Lua palette"
+		)
+
+	# Completion: the player API and keywords are offered by prefix.
+	check(panel.code_edit.code_completion_enabled, "code completion enabled")
+	var api = load("res://resources/lua_api.json")
+	check(
+		api is JSON and api.data != null and api.data.get("functions", []).size() == 6,
+		"lua_api.json parses with six signatures"
+	)
+	panel.code_edit.text = "m"
+	panel.code_edit.set_caret_column(1)
+	panel.code_edit.request_code_completion()
+	var displays: Array = []
+	for option in panel.code_edit.get_code_completion_options():
+		displays.append(option.get("display_text", ""))
+	check("move" in displays, "prefix m -> move offered, got %s" % str(displays))
+	panel.code_edit.text = "sc"
+	panel.code_edit.set_caret_column(2)
+	panel.code_edit.request_code_completion()
+	displays = []
+	for option in panel.code_edit.get_code_completion_options():
+		displays.append(option.get("display_text", ""))
+	check(
+		"scan" in displays and "scan_result" in displays,
+		"prefix sc -> scan and scan_result offered, got %s" % str(displays)
+	)
+	panel.code_edit.text = "whi"
+	panel.code_edit.set_caret_column(3)
+	panel.code_edit.request_code_completion()
+	displays = []
+	for option in panel.code_edit.get_code_completion_options():
+		displays.append(option.get("display_text", ""))
+	check("while" in displays, "Lua keywords complete too, got %s" % str(displays))
+	panel.code_edit.text = ""
+
 	files.remove(created)
 	panel.refresh_files()
 	panel.queue_free()
@@ -293,6 +339,12 @@ func _hud_checks() -> void:
 	var sim := SimNode.new()
 	root.add_child(sim)
 	var id := sim.get_rover_ids()[0]
+
+	# Freeze this sim's automatic ticking: while we poll process frames,
+	# physics_process keeps advancing the accumulator and the tick label
+	# would legitimately race past the expected value. step_ticks works
+	# regardless of the processing mode.
+	sim.process_mode = Node.PROCESS_MODE_DISABLED
 
 	var hud_scene: PackedScene = load("res://ui/hud.tscn")
 	var hud: CanvasLayer = hud_scene.instantiate()

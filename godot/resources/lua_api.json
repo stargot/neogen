@@ -1,0 +1,34 @@
+{
+	"functions": [
+		{
+			"name": "move",
+			"signature": "move(x, y)",
+			"description": "Queue a move to world coordinates (Y is north). Executes over the next ticks."
+		},
+		{
+			"name": "scan",
+			"signature": "scan(radius)",
+			"description": "Queue a scan of the surroundings; takes several ticks to complete."
+		},
+		{
+			"name": "scan_result",
+			"signature": "scan_result()",
+			"description": "Peek the latest completed scan: {tick, radius, points} or nil."
+		},
+		{
+			"name": "act",
+			"signature": "act(kind, params)",
+			"description": "Terraforming action stub (kind: plant | drain; params table). Arrives in phase 8."
+		},
+		{
+			"name": "print",
+			"signature": "print(...)",
+			"description": "Write a line to the mission console."
+		},
+		{
+			"name": "coroutine.yield",
+			"signature": "coroutine.yield(value)",
+			"description": "Pause the script until the next tick."
+		}
+	]
+}
