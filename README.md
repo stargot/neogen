@@ -72,6 +72,16 @@ func _ready() -> void:
 4. Без скриптов — «scripts: none»; после attach скрипта — «#1: running» (или finished); при ошибке скрипта — «#1: error (…hud boom…)» с текстом причины.
 5. Панель не мешает камере (drag/зум поверх неё работают), FPS ≥ 60.
 
+## MVP-приёмка (6.2)
+
+Headless-сценарий полного цикла MVP (как игрок: patrol → Run → движение → консоль → Stop → повторный Run):
+
+```sh
+cd godot && godot --headless --script res://tests/mvp_smoke.gd
+```
+
+`MVP SMOKE OK` + код выхода 0 = цикл работает. Чеклист приёмки (A-автоматика, B-сквозной цикл, C-ручные фазы): `docs/MVP_CHECKLIST.md`.
+
 ## Ручной тест 6.1 — новый игрок за 2 минуты
 
 Запуск: `cd godot && godot` (окно 1920×1080, F5 из редактора для fps).
