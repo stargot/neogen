@@ -62,6 +62,8 @@ func _initialize() -> void:
 	await _run_stop_checks()
 	_console_panel_checks()
 	_speed_heading_checks()
+	await _patrol_demo_checks()
+	_onboarding_checks()
 	_log_bridge_checks()
 	# Async suites run sequentially (editor first, then mirror): two
 	# interleaved coroutines shift frame timing and flake the mirror
@@ -287,6 +289,70 @@ func _run_stop_checks() -> void:
 	sim.queue_free()
 	console.queue_free()
 	runner.queue_free()
+
+
+func _patrol_demo_checks() -> void:
+	# Backlog 6.1: scripts/patrol.lua is a working demo - attach it and
+	# watch the rover drive the square route; the file itself stays.
+	var sim := SimNode.new()
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+	var start := sim.get_rover_position(id)
+
+	var captured: Array = []
+	sim.log_line.connect(
+		func(tick: int, rover: int, text: String):
+			captured.append(text)
+	)
+
+	var files = load("res://scripts/script_files.gd").new()
+	var source: String = files.read("patrol.lua")
+	check(source.contains("patrol"), "patrol.lua exists in scripts/")
+
+	var sid := sim.attach_script(id, source)
+	check(sid > 0, "patrol.lua compiles")
+
+	# First corner is (0,0): the rover drives there and reports.
+	var frame := await poll_until(
+		func() -> bool:
+			return sim.get_rover_position(id).distance_to(Vector2.ZERO) < 1.0,
+		240
+	)
+	check(frame >= 0, "rover reached the first corner (frame %d)" % frame)
+
+	frame = await poll_until(
+		func() -> bool: return captured.size() > 0,
+		120
+	)
+	check(frame >= 0, "patrol reported in the console")
+	check(
+		str(captured[0]).contains("патруль"),
+		"report line is the patrol one: %s" % str(captured[0])
+	)
+
+	# Second corner on the opposite side proves the loop keeps going.
+	frame = await poll_until(
+		func() -> bool: return sim.get_rover_position(id).x > 4.0,
+		240
+	)
+	check(frame >= 0, "rover continues to the next corner")
+
+	# The demo file stays (it is the shipped demo, not a test probe).
+	sim.queue_free()
+
+
+func _onboarding_checks() -> void:
+	var scene: PackedScene = load("res://ui/onboarding_hint.tscn")
+	var hint: CanvasLayer = scene.instantiate()
+	root.add_child(hint)
+	check(hint.visible, "hint visible at start (MVP: always shown)")
+	check(hint.get_node("Panel/Margin/VBox/Line1").text.contains("F12"), "hint line 1 mentions F12")
+	check(hint.get_node("Panel/Margin/VBox/Line2").text.contains("Run"), "hint line 2 mentions Run")
+	hint.close_hint()
+	check(not hint.visible, "close_hint hides the panel")
+	hint.visible = true
+	check(hint.visible, "hint can be re-shown")
+	hint.queue_free()
 
 
 func _console_panel_checks() -> void:

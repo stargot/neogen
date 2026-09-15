@@ -1,0 +1,43 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/onboarding_hint.gd" id="1_hint"]
+
+[node name="OnboardingHint" type="CanvasLayer"]
+script = ExtResource("1_hint")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 32.0
+offset_right = 320.0
+offset_bottom = 190.0
+grow_horizontal = 2
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+
+[node name="Title" type="Label" parent="Panel/Margin/VBox"]
+ theme_override_font_sizes/font_size = 16
+text = "NEOGEN — с чего начать"
+
+[node name="Line1" type="Label" parent="Panel/Margin/VBox"]
+text = "1. F12 — редактор скриптов. Открой scripts/patrol.lua и почитай: это рабочее демо."
+
+[node name="Line2" type="Label" parent="Panel/Margin/VBox"]
+text = "2. Выбери patrol.lua в списке и нажми Run — ровер поедет по квадрату, консоль (`) покажет доложения."
+
+[node name="Line3" type="Label" parent="Panel/Margin/VBox"]
+text = "3. Правь файл и сохраняй — игра сама перезапустит скрипт (hot-reload). Стоп — кнопкой Stop."
+
+[node name="Line4" type="Label" parent="Panel/Margin/VBox"]
+text = "Подсказка: скрипты — обычные .lua в папке scripts/. Пробел+ЛКМ — камера, колесо — зум."
+
+[node name="Close" type="Button" parent="Panel/Margin/VBox"]
+text = "Понятно, поехали"
