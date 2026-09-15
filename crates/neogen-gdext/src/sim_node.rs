@@ -12,7 +12,7 @@ use godot::classes::Node;
 use godot::prelude::*;
 
 use neogen_core::{Command, RoverId, TICK_DT, Vec2};
-use neogen_script::{RuntimeConfig, ScriptHost};
+use neogen_script::{RuntimeConfig, ScriptHost, ScriptState};
 
 use crate::coords;
 
@@ -109,6 +109,52 @@ impl SimNode {
     #[func]
     pub(crate) fn tick_alpha(&self) -> f32 {
         (self.accumulator / TICK_DT).clamp(0.0, 1.0) as f32
+    }
+
+    /// Ids of all managed scripts, ascending (HUD, backlog 4.3).
+    #[func]
+    fn get_script_ids(&mut self) -> PackedInt64Array {
+        let mut ids = PackedInt64Array::new();
+        if let Some(host) = self.ensure_host() {
+            for id in host.managed_ids() {
+                ids.push(id as i64);
+            }
+        }
+        ids
+    }
+
+    /// Lifecycle state of a managed script as `{state: String, error:
+    /// String}` — `state` is one of running/suspended/finished/stopped/
+    /// error/unknown; `error` carries the message only in the error case.
+    /// Minimal bridge adaptation for the HUD (backlog 4.3).
+    #[func]
+    fn get_script_state(&mut self, id: i64) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let state = self
+            .ensure_host()
+            .and_then(|host| host.script_state(id as u32));
+        match state {
+            None => {
+                out.set("state", "unknown");
+            }
+            Some(ScriptState::Running) => {
+                out.set("state", "running");
+            }
+            Some(ScriptState::SuspendedBudget) => {
+                out.set("state", "suspended");
+            }
+            Some(ScriptState::Finished) => {
+                out.set("state", "finished");
+            }
+            Some(ScriptState::Stopped) => {
+                out.set("state", "stopped");
+            }
+            Some(ScriptState::Failed(error)) => {
+                out.set("state", "error");
+                out.set("error", error.to_string());
+            }
+        }
+        out
     }
 
     /// Rover's effective speed: cruise speed while driving, 0 when

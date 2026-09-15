@@ -1,0 +1,39 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_right = 240.0
+offset_bottom = 120.0
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+mouse_filter = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+mouse_filter = 2
+
+[node name="Title" type="Label" parent="Panel/Margin/VBox"]
+mouse_filter = 2
+text = "NEOGEN"
+	theme_override_font_sizes/font_size = 18
+
+[node name="TickLabel" type="Label" parent="Panel/Margin/VBox"]
+mouse_filter = 2
+text = "tick: 0"
+
+[node name="SeedLabel" type="Label" parent="Panel/Margin/VBox"]
+mouse_filter = 2
+text = "seed: —"
+
+[node name="StatusLabel" type="Label" parent="Panel/Margin/VBox"]
+mouse_filter = 2
+text = "scripts: none"
+autowrap_mode = 3

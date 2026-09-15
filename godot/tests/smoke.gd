@@ -222,6 +222,58 @@ func _rover_mirror_checks() -> void:
 	)
 	sim_b.queue_free()
 	ghost.queue_free()
+	await _hud_checks()
+
+
+func _hud_checks() -> void:
+	# Backlog 4.3: HUD exists, tracks ticks, and shows script status.
+	var sim := SimNode.new()
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+
+	var hud_scene: PackedScene = load("res://ui/hud.tscn")
+	var hud: CanvasLayer = hud_scene.instantiate()
+	root.add_child(hud)
+	hud.bind_sim(sim)
+	await process_frame
+	await process_frame
+
+	var tick_label: Label = hud.get_node("Panel/Margin/VBox/TickLabel")
+	var seed_label: Label = hud.get_node("Panel/Margin/VBox/SeedLabel")
+	var status_label: Label = hud.get_node("Panel/Margin/VBox/StatusLabel")
+
+	check(seed_label.text == "seed: 42", "HUD shows the seed, got %s" % seed_label.text)
+	sim.step_ticks(7)
+	await process_frame
+	check(
+		tick_label.text == "tick: 7",
+		"HUD tick label follows the simulation, got %s" % tick_label.text
+	)
+	check(
+		status_label.text == "scripts: none",
+		"no scripts attached -> none, got %s" % status_label.text
+	)
+
+	# A failing script flips the status to error with the message.
+	var sid := sim.attach_script(id, "error('hud boom')")
+	check(sid > 0, "failing script attached")
+	sim.step_ticks(1)
+	await process_frame
+	check(
+		status_label.text.begins_with("scripts: #1: error ("),
+		"HUD shows the error status, got %s" % status_label.text
+	)
+	check(
+		status_label.text.contains("hud boom"),
+		"HUD carries the error text, got %s" % status_label.text
+	)
+	check(
+		hud.last_error.contains("hud boom"),
+		"HUD captured the last error via log_line"
+	)
+
+	sim.queue_free()
+	hud.queue_free()
 	_finish()
 
 
