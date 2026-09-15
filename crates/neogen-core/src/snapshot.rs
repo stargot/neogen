@@ -30,8 +30,16 @@
 //! Changing this layout bumps [`SNAPSHOT_VERSION`] and requires a
 //! migration path; golden fixtures in `tests/golden/` are unaffected (the
 //! hash format is separate).
+//!
+//! **v1 stub decision:** command queues, scan buffers and in-progress
+//! command progress are *not* serialized. Queues are inputs (a resumed
+//! world starts with empty queues — scripts re-attach in phase 5.4),
+//! buffers are derived data. The trailing issuer watermark *is* kept so
+//! restored worlds never re-issue ids. Revisit deliberately when saves
+//! become player-facing (backlog 9.x).
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::fmt;
 
 use crate::ids::RoverId;
@@ -245,6 +253,9 @@ pub fn from_bytes(data: &[u8]) -> Result<WorldState, SnapshotError> {
             position: Vec2::new(x, y),
             heading,
             speed,
+            commands: VecDeque::new(),
+            scan_buffer: Vec::new(),
+            remaining_ticks: 0,
         };
         if rovers.insert(id, rover).is_some() {
             return Err(SnapshotError::Malformed {

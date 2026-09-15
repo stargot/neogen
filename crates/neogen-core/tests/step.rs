@@ -2,7 +2,7 @@
 
 use core::f64::consts::FRAC_PI_2;
 
-use neogen_core::{IdIssuer, RoverId, TICK_DT, TICK_HZ, Vec2, World};
+use neogen_core::{Command, IdIssuer, RoverId, TICK_DT, TICK_HZ, Vec2, World, state_hash};
 
 #[test]
 fn thousand_steps_advance_tick_counter_exactly() {
@@ -57,22 +57,23 @@ fn cloned_states_resume_identically() {
 
 #[test]
 fn moving_rover_advances_deterministically() {
+    // Movement is command-driven since 1.5: same seed + same command queue
+    // → identical states.
     let mut a = World::new(5);
     let mut b = World::new(5);
     let id = a.rovers().next().expect("rover exists").id;
     let start = a.rover(id).expect("rover exists").position;
-    for world in [&mut a, &mut b] {
-        let rover = world.rover_mut(id).expect("rover exists");
-        rover.heading = FRAC_PI_2; // +Y
-        rover.speed = 2.0; // world units per tick
-    }
-    assert_eq!(start, b.rover(id).expect("rover exists").position);
+    let target = start + Vec2::from_angle(FRAC_PI_2) * 200.0; // +Y, 200 away
+    a.push_commands(id, [Command::MoveTo { target }]);
+    b.push_commands(id, [Command::MoveTo { target }]);
+
     for _ in 0..100 {
         a.step();
         b.step();
     }
     assert_eq!(a.state(), b.state());
 
+    // Cruise default is 2/tick: exactly 100 ticks for 200 units.
     let position = a.rover(id).expect("rover exists").position;
     let delta = position - start;
     assert!(delta.x.abs() < 1e-9, "drift on X: {delta:?}");
@@ -80,6 +81,7 @@ fn moving_rover_advances_deterministically() {
         (delta.y - 200.0).abs() < 1e-9,
         "Y delta after 100 ticks: {delta:?}"
     );
+    assert_eq!(state_hash(a.state()), state_hash(b.state()));
 }
 
 #[test]

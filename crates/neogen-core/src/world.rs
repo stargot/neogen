@@ -1,34 +1,48 @@
 //! World state, entity registry, and the [`World`] driver.
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 
+use crate::commands::{Command, ScanResult};
 use crate::generate::generate_world;
 use crate::ids::{IdIssuer, RoverId};
 use crate::math::Vec2;
 use crate::rng::Rng;
+use crate::rover::step_rover;
 
 /// A rover entity.
 ///
-/// Movement is heading/speed based; command queues arrive in backlog 1.5.
-/// `speed` is in world units per tick (not per second) so one `step` is
-/// always `position += direction(heading) * speed`.
+/// Physical state (position, heading, speed) plus the command queue and
+/// scan buffer. Movement is command-driven (backlog 1.5): a rover without
+/// queued commands parks, regardless of its speed field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rover {
     /// Entity id (registry key).
     pub id: RoverId,
     /// Position in world units.
     pub position: Vec2,
-    /// Heading in radians (0 = +X, π/2 = +Y).
+    /// Heading in radians (0 = +X, π/2 = +Y); updated while moving.
     pub heading: f64,
-    /// Speed in world units per tick.
+    /// Cruise-speed override in world units per tick: `0.0` (the spawn
+    /// default) means the factory default
+    /// ([`crate::rover::DEFAULT_CRUISE_SPEED`]); `> 0` overrides it.
     pub speed: f64,
+    /// Queued commands, front executes first. *Inputs*, not physics:
+    /// excluded from the state hash and from snapshot v1 (see `hash.rs`).
+    pub commands: VecDeque<Command>,
+    /// Completed scans, oldest first. *Derived data*: excluded from the
+    /// state hash and from snapshot v1 (see `hash.rs`).
+    pub scan_buffer: Vec<ScanResult>,
+    /// Progress of the in-progress command: ticks left for the current
+    /// Scan (crate-internal; reset when any command completes).
+    pub(crate) remaining_ticks: u64,
 }
 
 impl Rover {
-    /// Advance the rover by exactly one tick along its heading.
-    fn advance(&mut self) {
-        let direction = Vec2::from_angle(self.heading);
-        self.position = self.position + direction * self.speed;
+    /// Advance the front command by one tick (crate-internal: `step`
+    /// drives this in ascending-id order).
+    fn advance(&mut self, completing_tick: u64) {
+        step_rover(self, completing_tick);
     }
 }
 
@@ -118,9 +132,30 @@ impl WorldState {
             position,
             heading,
             speed: 0.0,
+            commands: VecDeque::new(),
+            scan_buffer: Vec::new(),
+            remaining_ticks: 0,
         };
         self.rovers.insert(id, rover);
         id
+    }
+
+    /// Append commands to a rover's queue (script entry point).
+    /// Returns how many commands were queued (0 if the id is unknown).
+    pub fn push_commands(
+        &mut self,
+        id: RoverId,
+        commands: impl IntoIterator<Item = Command>,
+    ) -> usize {
+        let Some(rover) = self.rovers.get_mut(&id) else {
+            return 0;
+        };
+        let mut queued = 0;
+        for command in commands {
+            rover.commands.push_back(command);
+            queued += 1;
+        }
+        queued
     }
 
     /// Iterate rovers in ascending-id order.
@@ -167,11 +202,14 @@ impl World {
         self.state
     }
 
-    /// Advance the simulation by exactly one fixed tick
-    /// (entities first, in ascending-id order, then the tick counter).
+    /// Advance the simulation by exactly one fixed tick: rovers execute
+    /// their command queues in ascending-id order, then the tick counter
+    /// increments (entities first — unchanged since backlog 1.1).
     pub fn step(&mut self) {
+        // Tick number this step completes — used to timestamp results.
+        let completing_tick = self.state.tick.saturating_add(1);
         for rover in self.state.rovers.values_mut() {
-            rover.advance();
+            rover.advance(completing_tick);
         }
         self.state.tick = self.state.tick.saturating_add(1);
     }
@@ -199,6 +237,16 @@ impl World {
     /// Look up a rover by id.
     pub fn rover(&self, id: RoverId) -> Option<&Rover> {
         self.state.rover(id)
+    }
+
+    /// Append commands to a rover's queue (delegates to the state).
+    /// Returns how many commands were queued (0 if the id is unknown).
+    pub fn push_commands(
+        &mut self,
+        id: RoverId,
+        commands: impl IntoIterator<Item = Command>,
+    ) -> usize {
+        self.state.push_commands(id, commands)
     }
 
     /// Look up a rover by id for mutation (e.g. setting speed in tests,
@@ -236,5 +284,6 @@ mod tests {
         }
         let rover = world.rovers().next().expect("rover exists");
         assert_eq!(rover.position, start);
+        assert!(rover.commands.is_empty());
     }
 }

@@ -28,6 +28,14 @@
 //! deliberate, regenerate the fixtures with `NEOGEN_UPDATE_GOLDEN=1`
 //! (see `tests/golden_determinism.rs`) and mention the format change in
 //! the commit.
+//!
+//! **Deliberately excluded from the walk:** rover command queues and scan
+//! buffers. Commands are *inputs* — two worlds that ended up in the same
+//! physical state must hash the same regardless of which command sequence
+//! produced it (and hash-drift tests must not fire just because a test
+//! queued commands). Scan buffers are *derived data* — replaying the same
+//! ticks with the same commands reconstructs them. Snapshot v1 mirrors
+//! this exclusion (see `snapshot.rs`).
 
 use crate::world::WorldState;
 
