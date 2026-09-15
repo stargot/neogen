@@ -74,3 +74,10 @@ jobs:
           # Deliberate tripwire (review #8): any error/failed line in the
           # headless run fails the job - do not loosen without a reason.
           ! grep -qiE "error|failed" /tmp/godot-run.log
+
+      - name: Smoke test (bridge, editor, HUD, mirror)
+        working-directory: godot
+        run: |
+          set -o pipefail
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --script res://tests/smoke.gd 2>&1 | tee /tmp/smoke.log
+          grep -q "SMOKE OK" /tmp/smoke.log
