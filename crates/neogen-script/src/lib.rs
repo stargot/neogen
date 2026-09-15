@@ -18,6 +18,7 @@ mod lifecycle;
 mod logbuffer;
 mod sandbox;
 mod scheduler;
+mod script_store;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -33,6 +34,7 @@ pub use budget::{
 pub use errors::{MAX_ERROR_TEXT, ScriptError};
 pub use lifecycle::ScriptState;
 pub use logbuffer::{LogBuffer, LogEntry, MAX_LOG_BUFFER};
+pub use script_store::{FailedFile, ScanReport, ScriptStore, StoreError, StoredScript};
 
 /// Result of evaluating a Lua chunk, mapped to a small crate-owned enum so
 /// the public API does not leak `mlua` types (the bridge should not have
@@ -194,6 +196,26 @@ impl ScriptHost {
             },
         );
         Ok(id)
+    }
+
+    /// Convenience bridge: attach a script from a [`ScriptStore`] entry by
+    /// file name (backlog 2.7). A missing name is a host-side error
+    /// (`script_id = 0`, see the `Runtime` docs for the convention).
+    pub fn attach_from_store(
+        &mut self,
+        rover: RoverId,
+        store: &ScriptStore,
+        name: &str,
+    ) -> Result<u32, ScriptError> {
+        let stored = store.get(name).ok_or_else(|| ScriptError::Runtime {
+            script_id: 0,
+            tick: 0,
+            message: format!(
+                "no script named {name:?} in the store (dir: {})",
+                store.dir().display()
+            ),
+        })?;
+        self.attach_script(rover, &stored.text)
     }
 
     /// Restart a managed script with new source: fresh chunk, coroutine
