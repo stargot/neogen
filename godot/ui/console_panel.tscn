@@ -1,0 +1,44 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/console_panel.gd" id="1_console"]
+
+[node name="ConsolePanel" type="CanvasLayer"]
+script = ExtResource("1_console")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -232.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 6
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+
+[node name="Toolbar" type="HBoxContainer" parent="Panel/Margin/VBox"]
+
+[node name="Title" type="Label" parent="Panel/Margin/VBox/Toolbar"]
+text = "CONSOLE"
+ theme_override_font_sizes/font_size = 14
+
+[node name="Spacer" type="Control" parent="Panel/Margin/VBox/Toolbar"]
+size_flags_horizontal = 3
+
+[node name="CopyButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Copy"
+
+[node name="ClearButton" type="Button" parent="Panel/Margin/VBox/Toolbar"]
+text = "Clear"
+
+[node name="Log" type="RichTextLabel" parent="Panel/Margin/VBox"]
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_following = true

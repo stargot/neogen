@@ -59,6 +59,7 @@ func _initialize() -> void:
 
 	sim.queue_free()
 	sim2.queue_free()
+	_console_panel_checks()
 	_speed_heading_checks()
 	_log_bridge_checks()
 	# Async suites run sequentially (editor first, then mirror): two
@@ -162,6 +163,59 @@ func _editor_checks() -> void:
 	panel.refresh_files()
 	panel.queue_free()
 	await _rover_mirror_checks()
+
+
+func _console_panel_checks() -> void:
+	# Backlog 5.3: the console panel is the single log_line receiver.
+	var sim := SimNode.new()
+	sim.process_mode = Node.PROCESS_MODE_DISABLED  # deterministic ticks
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+
+	var panel_scene: PackedScene = load("res://ui/console_panel.tscn")
+	var panel: CanvasLayer = panel_scene.instantiate()
+	# Bind BEFORE add_child: _ready auto-wiring must not race the explicit
+	# bind (the HUD double-bind lesson).
+	panel.bind_sim(sim)
+	root.add_child(panel)
+	check(panel.get_node_or_null("Panel") != null, "console panel instantiates")
+
+	# Print appears exactly once (single subscription), poll-until-visible.
+	sim.attach_script(id, "print(\"console hi\")")
+	sim.step_ticks(1)
+	var frame := await poll_until(
+		func() -> bool:
+			return panel.get_log_text().contains("[tick 0] rover 1: console hi")
+	)
+	check(frame >= 0, "print line rendered in the panel")
+	print("DBG log text: ", panel.get_log_text().replace("
+", " | "))
+	var count: int = panel.get_log_text().count("console hi")
+	check(count == 1, "exactly one console hi (no double subscription), got %d" % count)
+
+	# Error lines get the error color style: check the pure formatter
+	# (raw bbcode is not readable headless - see get_raw_bbcode docs).
+	sim.attach_script(id, "error('panel boom')")
+	sim.step_ticks(1)
+	frame = await poll_until(
+		func() -> bool: return panel.get_log_text().contains("panel boom")
+	)
+	var formatted: String = panel._format_line(1, 1, "error: panel boom")
+	check(
+		formatted.contains("[color=#c96a5a]") and formatted.contains("[tick 1] rover 1:"),
+		"error line carries the error color span: %s" % formatted
+	)
+	check(panel.get_log_text().contains("panel boom"), "error text rendered in the log")
+
+	# Clear wipes the log.
+	panel.clear_log()
+	check(panel.get_log_text() == "", "clear empties the log")
+
+	# Copy runs without crashing (clipboard content is not assertable headless).
+	panel.copy_log()
+
+	sim.queue_free()
+	panel.queue_free()
 
 
 func _speed_heading_checks() -> void:

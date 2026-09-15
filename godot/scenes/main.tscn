@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/rover.tscn" id="2_rover"]
-[ext_resource type="Script" path="res://scripts/console.gd" id="3_console"]
+[ext_resource type="Script" path="res://scripts/console_panel.gd" id="3_console"]
 [ext_resource type="PackedScene" path="res://scenes/world.tscn" id="4_world"]
 [ext_resource type="PackedScene" path="res://ui/hud.tscn" id="5_hud"]
 [ext_resource type="PackedScene" path="res://ui/editor_panel.tscn" id="6_editor"]
@@ -16,7 +16,7 @@ script = ExtResource("1_main")
 
 [node name="Rover" parent="." instance=ExtResource("2_rover")]
 
-[node name="Console" type="Node" parent="."]
+[node name="ConsolePanel" type="CanvasLayer" parent="."]
 script = ExtResource("3_console")
 
 [node name="HUD" parent="." instance=ExtResource("5_hud")]
