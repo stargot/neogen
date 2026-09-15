@@ -26,10 +26,15 @@ use crate::coords;
 #[class(base = Node)]
 pub(crate) struct SimNode {
     base: Base<Node>,
-    /// Simulation seed (exposed to the editor; applied on scene start).
+    /// Simulation seed. Applied once when the simulation host is created
+    /// (first use / scene start) — **changing it afterwards has no
+    /// effect** on the already-running world.
     #[var]
     seed: i64,
     host: Option<ScriptHost>,
+    /// Latched failure of host creation (review #4): no per-call retries,
+    /// exactly one error is logged.
+    host_failed: bool,
     accumulator: f64,
 }
 
@@ -40,6 +45,7 @@ impl INode for SimNode {
             base,
             seed: 42,
             host: None,
+            host_failed: false,
             accumulator: 0.0,
         }
     }
@@ -63,6 +69,9 @@ impl SimNode {
     /// during `SceneTree._initialize` run before the tree delivers
     /// notifications, so every accessor goes through here too (lazy init).
     fn ensure_host(&mut self) -> Option<&mut ScriptHost> {
+        if self.host_failed {
+            return None; // latched: one error, no per-call retries
+        }
         if self.host.is_none() {
             match ScriptHost::new(
                 neogen_core::World::new(self.seed as u64),
@@ -70,6 +79,7 @@ impl SimNode {
             ) {
                 Ok(host) => self.host = Some(host),
                 Err(error) => {
+                    self.host_failed = true;
                     godot_error!("Neogen: cannot create simulation host: {error}");
                     return None;
                 }
@@ -82,7 +92,9 @@ impl SimNode {
 #[godot_api]
 impl SimNode {
     /// Emitted for every script log line, one signal per entry, after the
-    /// tick that produced it (backlog 3.4).
+    /// tick that produced it (backlog 3.4). Handlers must not synchronously
+    /// call back into `step_ticks`/`step_world` (nested ticks); defer
+    /// heavy reactions to the next frame instead.
     #[signal]
     fn log_line(tick: i64, rover_id: i64, text: GString);
 
@@ -101,7 +113,7 @@ impl SimNode {
 
     /// Rover ids present in the world, ascending.
     #[func]
-    fn get_rover_ids(&mut self) -> PackedInt64Array {
+    pub(crate) fn get_rover_ids(&mut self) -> PackedInt64Array {
         let mut ids = PackedInt64Array::new();
         if let Some(host) = self.ensure_host() {
             for id in host.rover_ids() {
@@ -126,8 +138,9 @@ impl SimNode {
         }
     }
 
-    /// Advance exactly `n` ticks right now (deterministic test path; the
-    /// physics accumulator keeps running independently).
+    /// Advance exactly `n` ticks right now. **Test/deterministic path**
+    /// (review #5/#8): the real game loop is the physics accumulator;
+    /// this bypasses it but keeps the world/scheduler semantics.
     #[func]
     fn step_ticks(&mut self, n: i64) {
         for _ in 0..n.max(0) {
@@ -136,13 +149,19 @@ impl SimNode {
     }
 
     /// Attach a Lua script to a rover (managed: runs inside every
-    /// `step_world`). Returns the script id, or -1 on a compile error.
+    /// `step_world`). Returns the script id, or **-1 on any error**
+    /// (unknown rover id, compile failure) — nothing is attached then.
     #[func]
     fn attach_script(&mut self, rover_id: i64, source: GString) -> i64 {
         let Some(host) = self.ensure_host() else {
             return -1;
         };
-        match host.attach_script(RoverId::from_raw(rover_id as u32), &source.to_string()) {
+        let rover = RoverId::from_raw(rover_id as u32);
+        if !host.rover_ids().contains(&rover) {
+            godot_warn!("Neogen: attach_script: no rover with id {rover_id}");
+            return -1;
+        }
+        match host.attach_script(rover, &source.to_string()) {
             Ok(id) => id as i64,
             Err(error) => {
                 godot_warn!("Neogen: attach_script failed: {error}");
@@ -152,8 +171,10 @@ impl SimNode {
     }
 
     /// Queue a move for a rover (test/diagnostic channel; player scripts
-    /// use their own API). Returns false for unknown rovers or invalid
-    /// targets.
+    /// use their own API). **Coordinates are core-world units** (Y north),
+    /// mirroring the Lua `move(x, y)` API — convert user-facing screen
+    /// input with the inverse of `get_rover_position` (see `coords`).
+    /// Returns false for unknown rovers or invalid targets.
     #[func]
     fn debug_move_rover(&mut self, id: i64, x: f64, y: f64) -> bool {
         let Some(host) = self.host.as_mut() else {

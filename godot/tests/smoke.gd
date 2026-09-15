@@ -109,6 +109,14 @@ func _log_bridge_checks() -> void:
 	check(sim.attach_script(id, "return +") == -1, "compile error -> -1")
 	sim.step_ticks(1)
 	check(captured.size() == 2, "no line for the failed attach")
+
+	# Unknown rover: rejected at attach time, nothing runs (review #2).
+	check(
+		sim.attach_script(999, "print('ghost')") == -1,
+		"print-only script on a fake rover id -> -1"
+	)
+	sim.step_ticks(1)
+	check(captured.size() == 2, "ghost script never logged")
 	sim.queue_free()
 
 
@@ -162,6 +170,25 @@ func _rover_mirror_checks() -> void:
 	)
 	sim.queue_free()
 	rover.queue_free()
+
+	# Mirror with an unknown rover id: inert, no drift (review #3).
+	var sim_b := SimNode.new()
+	root.add_child(sim_b)
+	var ghost_scene: PackedScene = load("res://scenes/rover.tscn")
+	var ghost: Node2D = ghost_scene.instantiate()
+	ghost.set("rover_id", 999)
+	ghost.set("sim_path", NodePath(sim_b.get_path()))
+	root.add_child(ghost)
+	ghost.position = Vector2(5.0, 5.0)
+	check(ghost.call("is_valid") == false, "ghost mirror reports invalid")
+	for i in range(10):
+		await process_frame
+	check(
+		ghost.position == Vector2(5.0, 5.0),
+		"invalid mirror stays where placed, got %s" % ghost.position
+	)
+	sim_b.queue_free()
+	ghost.queue_free()
 	_finish()
 
 

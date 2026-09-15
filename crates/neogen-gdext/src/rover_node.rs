@@ -34,6 +34,10 @@ struct RoverNode {
     #[var]
     sim_path: NodePath,
     sim: Option<Gd<SimNode>>,
+    /// Validated once in ready (review #3): sim resolved AND rover id
+    /// exists. Invalid mirrors warn exactly once and stay put — no
+    /// per-frame spam, no drift to the origin.
+    valid: bool,
 }
 
 #[godot_api]
@@ -44,22 +48,37 @@ impl INode2D for RoverNode {
             rover_id: 1,
             sim_path: NodePath::from("../Sim"),
             sim: None,
+            valid: false,
         }
     }
 
     fn ready(&mut self) {
         match self.base().get_node_or_null(&self.sim_path) {
             Some(node) => match node.try_cast::<SimNode>() {
-                Ok(sim) => self.sim = Some(sim),
+                Ok(mut sim) => {
+                    let ids = sim.bind_mut().get_rover_ids();
+                    if ids.contains(self.rover_id) {
+                        self.sim = Some(sim);
+                        self.valid = true;
+                    } else {
+                        godot_warn!(
+                            "Neogen: rover {} does not exist; the mirror stays put",
+                            self.rover_id
+                        );
+                    }
+                }
                 Err(_) => {
                     godot_warn!(
-                        "Neogen: node at {} is not a SimNode",
+                        "Neogen: node at {} is not a SimNode; the mirror stays put",
                         self.sim_path.to_string()
                     );
                 }
             },
             None => {
-                godot_warn!("Neogen: no SimNode at {}", self.sim_path.to_string());
+                godot_warn!(
+                    "Neogen: no SimNode at {}; the mirror stays put",
+                    self.sim_path.to_string()
+                );
             }
         }
         self.base_mut().queue_redraw();
@@ -78,16 +97,28 @@ impl INode2D for RoverNode {
     }
 }
 
+#[godot_api]
+impl RoverNode {
+    /// Whether the mirror resolved a live SimNode and a real rover id.
+    #[func]
+    fn is_valid(&self) -> bool {
+        self.valid
+    }
+}
+
 impl RoverNode {
     /// Chase the core position: pure visual smoothing, no state authority.
+    /// Invalid mirrors are inert: no per-frame warnings, no drift — the
+    /// node stays where the author placed it.
     fn mirror_tick(&mut self) {
+        if !self.valid {
+            return;
+        }
         let (target, alpha) = match self.sim.as_mut() {
             Some(sim) => {
                 let mut sim = sim.bind_mut();
-                (
-                    sim.get_rover_position(self.rover_id),
-                    sim.tick_alpha().clamp(0.0, 1.0),
-                )
+                // tick_alpha is already clamped to 0..1 in SimNode.
+                (sim.get_rover_position(self.rover_id), sim.tick_alpha())
             }
             None => return,
         };

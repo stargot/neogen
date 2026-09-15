@@ -71,4 +71,6 @@ jobs:
           set -o pipefail
           ../Godot_v4.7.2-stable_linux.x86_64 --headless --quit 2>&1 | tee /tmp/godot-run.log
           grep -q "Neogen GDExtension loaded" /tmp/godot-run.log
+          # Deliberate tripwire (review #8): any error/failed line in the
+          # headless run fails the job - do not loosen without a reason.
           ! grep -qiE "error|failed" /tmp/godot-run.log
