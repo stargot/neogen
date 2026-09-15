@@ -25,8 +25,28 @@ impl Vec2 {
     }
 
     /// Unit vector pointing along `radians` (0 = +X, π/2 = +Y).
+    ///
+    /// Uses libm `sin`/`cos`, whose last bit may differ between C
+    /// libraries — therefore for tests and UI glue only, never for values
+    /// that enter simulation state (hash/snapshot). The simulation rotates
+    /// via [`normalized`](Self::normalized) and basic IEEE ops instead.
     pub fn from_angle(radians: f64) -> Self {
         Self::new(radians.cos(), radians.sin())
+    }
+
+    /// Normalize to a (approximately) unit vector.
+    ///
+    /// Deterministic across platforms: only `+ − × ÷ √` are used — the
+    /// five IEEE 754 basic operations, each correctly rounded, so any
+    /// compliant hardware yields identical bits. The zero vector maps to
+    /// `+X` by convention.
+    pub fn normalized(self) -> Self {
+        let length = self.length();
+        if length == 0.0 {
+            Self::new(1.0, 0.0)
+        } else {
+            self / length
+        }
     }
 
     /// Dot product with `other`.

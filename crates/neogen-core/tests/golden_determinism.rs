@@ -27,12 +27,30 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use neogen_core::{World, state_hash};
+use neogen_core::{Command, Vec2, World, state_hash};
 
 /// Seeds recorded in the fixtures.
 const SEEDS: [u64; 3] = [42, 7, u64::MAX];
 /// Checkpoint ticks where hashes are compared/recorded.
 const CHECKPOINTS: [u64; 4] = [1, 10, 100, 1000];
+
+/// Fixed script: (tick when the command is pushed, command factory).
+/// Targets derive from the seeded rover start, so they are seed-dependent
+/// but fully deterministic (FIX-раунд 1.5 #1: without commands in the
+/// golden run, a regression in MoveTo/Scan logic would change no fixture).
+fn script_for(start: Vec2) -> Vec<(u64, Command)> {
+    vec![
+        (
+            1,
+            Command::MoveTo {
+                target: start + Vec2::new(5.0, 5.0),
+            },
+        ),
+        (10, Command::Scan { radius: 4.0 }),
+        (50, Command::MoveTo { target: Vec2::ZERO }),
+        (500, Command::Scan { radius: 1.5 }),
+    ]
+}
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/world_hashes.txt")
@@ -46,13 +64,28 @@ struct Entry {
     hash: u64,
 }
 
-/// Compute all fixture entries: every seed run to the last checkpoint.
+/// Compute all fixture entries: every seed run to the last checkpoint,
+/// driven by the fixed script (commands pushed at their scheduled ticks).
 fn compute_entries() -> Vec<Entry> {
     let mut entries = Vec::new();
     for &seed in SEEDS.iter() {
         let mut world = World::new(seed);
+        let id = world.rovers().next().expect("rover exists").id;
+        let start = world.rovers().next().expect("rover exists").position;
+        let script = script_for(start);
         for &checkpoint in CHECKPOINTS.iter() {
             while world.tick() < checkpoint {
+                let next_tick = world.tick() + 1;
+                let due: Vec<Command> = script
+                    .iter()
+                    .filter(|(at, _)| *at == next_tick)
+                    .map(|(_, command)| *command)
+                    .collect();
+                if !due.is_empty() {
+                    world
+                        .push_commands(id, due)
+                        .expect("script commands are valid");
+                }
                 world.step();
             }
             entries.push(Entry {

@@ -19,8 +19,8 @@ fn roundtrip_preserves_state_and_hash() {
 #[test]
 fn roundtrip_with_multiple_rovers() {
     let mut state = World::new(5).into_state();
-    state.spawn_rover(Vec2::new(1.0, -2.0), 1.25);
-    state.spawn_rover(Vec2::new(-3.5, 4.0), 2.5);
+    state.spawn_rover(Vec2::new(1.0, -2.0), Vec2::new(1.0, 0.0));
+    state.spawn_rover(Vec2::new(-3.5, 4.0), Vec2::new(0.0, 1.0));
 
     let bytes = to_bytes(&state);
     let restored = from_bytes(&bytes).expect("valid snapshot");
@@ -29,7 +29,7 @@ fn roundtrip_with_multiple_rovers() {
 
     // The issuer watermark survives: new ids continue the sequence.
     let mut restored = restored;
-    let next = restored.spawn_rover(Vec2::ZERO, 0.0);
+    let next = restored.spawn_rover(Vec2::ZERO, Vec2::new(1.0, 0.0));
     assert_eq!(next.raw(), 4);
 }
 
@@ -76,7 +76,7 @@ fn header_layout_is_magic_then_version_lsb() {
     assert_eq!(&bytes[0..4], b"NEGN");
     let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes"));
     assert_eq!(version, SNAPSHOT_VERSION);
-    assert_eq!(SNAPSHOT_VERSION, 1);
+    assert_eq!(SNAPSHOT_VERSION, 2, "bumped in FIX-раунд 1.5 #2");
 }
 
 #[test]

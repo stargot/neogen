@@ -17,7 +17,7 @@ pub mod snapshot;
 pub mod tick;
 pub mod world;
 
-pub use commands::{Command, SCAN_TICKS, ScanResult};
+pub use commands::{Command, CommandError, SCAN_TICKS, ScanResult};
 pub use generate::{START_PAD_HALF_SIZE, generate_world};
 pub use hash::{Fnv1a, state_hash};
 pub use ids::{IdIssuer, RoverId};
@@ -26,7 +26,7 @@ pub use rng::Rng;
 pub use rover::DEFAULT_CRUISE_SPEED;
 pub use snapshot::{MAGIC, SNAPSHOT_VERSION, SnapshotError, from_bytes, to_bytes};
 pub use tick::{TICK_DT, TICK_HZ};
-pub use world::{Rover, World, WorldState};
+pub use world::{PushCommandsError, Rover, World, WorldState};
 
 /// Version of the simulation engine API (matches the crate version).
 pub fn engine_version() -> &'static str {

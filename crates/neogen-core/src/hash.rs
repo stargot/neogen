@@ -20,7 +20,8 @@
 //! 3. the four RNG state words (order as stored)
 //! 4. rover count
 //! 5. per rover, in ascending-id order: id, position.x, position.y,
-//!    heading, speed
+//!    heading.x, heading.y, speed (heading is a direction vector since
+//!    FIX-раунд 1.5 #2 — a deliberate format change, fixtures regenerated)
 //!
 //! Any change to the state *shape* (new field, new entity kind, changed
 //! entity semantics) intentionally changes the hashes — golden fixtures
@@ -29,13 +30,18 @@
 //! (see `tests/golden_determinism.rs`) and mention the format change in
 //! the commit.
 //!
-//! **Deliberately excluded from the walk:** rover command queues and scan
-//! buffers. Commands are *inputs* — two worlds that ended up in the same
-//! physical state must hash the same regardless of which command sequence
-//! produced it (and hash-drift tests must not fire just because a test
-//! queued commands). Scan buffers are *derived data* — replaying the same
-//! ticks with the same commands reconstructs them. Snapshot v1 mirrors
-//! this exclusion (see `snapshot.rs`).
+//! **Deliberately excluded from the walk:** rover command queues, scan
+//! buffers, and the in-progress command progress (`remaining_ticks`).
+//! Commands are *inputs* — two worlds that ended up in the same physical
+//! state must hash the same regardless of which command sequence produced
+//! it (and hash-drift tests must not fire just because a test queued
+//! commands). Scan buffers and `remaining_ticks` are *derived data* —
+//! replaying the same ticks with the same commands reconstructs them.
+//! Nothing else that `step()` reads is missing: `step()` touches only the
+//! tick counter and, per rover, the walked physical fields driven by the
+//! (excluded) queues. The id-issuer watermark also stays out — it
+//! influences future spawns, not `step()`. Snapshot serialization mirrors
+//! these exclusions (see `snapshot.rs`).
 
 use crate::world::WorldState;
 
@@ -98,7 +104,8 @@ pub fn state_hash(state: &WorldState) -> u64 {
         h.write_u64(u64::from(rover.id.raw()));
         h.write_f64(rover.position.x);
         h.write_f64(rover.position.y);
-        h.write_f64(rover.heading);
+        h.write_f64(rover.heading.x);
+        h.write_f64(rover.heading.y);
         h.write_f64(rover.speed);
     }
     h.finish()

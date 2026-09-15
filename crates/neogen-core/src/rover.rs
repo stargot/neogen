@@ -5,6 +5,15 @@
 //! one tick advances at most the front command, MoveTo lands exactly on
 //! its target without oscillation (`min(cruise, remaining distance)`), and
 //! scan results are derived data appended to the rover's buffer in order.
+//!
+//! Heading determinism (FIX-раунд 1.5 #2): the heading is stored as a
+//! direction vector computed only with IEEE 754 basic operations
+//! (`delta / distance`, i.e. `÷` and `√`) — correctly rounded on every
+//! compliant platform, so state hashes and snapshots match bit-for-bit
+//! across Windows/Linux/macOS and any libm. Alternatives were rejected:
+//! a quantized angle index needs trig (or big tables) for the conversion
+//! back, and quantizing an `atan2` result still runs `atan2` — libm whose
+//! last bit differs between C libraries.
 
 use crate::commands::{Command, SCAN_TICKS, ScanResult};
 use crate::math::Vec2;
@@ -19,6 +28,8 @@ use crate::world::Rover;
 pub const DEFAULT_CRUISE_SPEED: f64 = 2.0;
 
 /// Effective cruise speed for this tick (override or factory default).
+/// Any non-positive value — `0.0` by convention, a negative only via
+/// invalid input (see the `speed` field docs) — selects the default.
 fn cruise_speed(rover: &Rover) -> f64 {
     if rover.speed > 0.0 {
         rover.speed
@@ -55,7 +66,8 @@ fn step_move_to(rover: &mut Rover, target: Vec2) -> bool {
         rover.position = target;
         true
     } else {
-        rover.heading = delta.y.atan2(delta.x);
+        // IEEE basic ops only (÷) — cross-platform bit-identical heading.
+        rover.heading = delta / distance;
         rover.position = rover.position + delta / distance * speed;
         false
     }
@@ -90,7 +102,7 @@ mod tests {
         Rover {
             id: crate::ids::RoverId::from_raw(1),
             position,
-            heading: 0.0,
+            heading: Vec2::new(1.0, 0.0),
             speed,
             commands: VecDeque::new(),
             scan_buffer: Vec::new(),

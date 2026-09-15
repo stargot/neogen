@@ -1,23 +1,24 @@
 //! Snapshot serialization of [`WorldState`] (backlog 1.4).
 //!
-//! # Byte format (schema version 1)
+//! # Byte format (schema version 2)
 //!
 //! Hand-rolled, little-endian (LSB-first) everywhere, no external codecs:
 //!
 //! ```text
 //! offset  size  field
 //! 0       4     magic: ASCII "NEGN"
-//! 4       4     schema version: u32, currently 1
+//! 4       4     schema version: u32, currently 2
 //! 8       8     tick: u64
 //! 16      8     seed: u64
 //! 24      32    rng state words s0..s3: 4 × u64
 //! 56      8     rover count: u64
-//! 64      36·n  rovers, ascending id, each:
+//! 64      44·n  rovers, ascending id, each:
 //!               +0   id: u32
 //!               +4   position.x: f64 bits
 //!               +12  position.y: f64 bits
-//!               +20  heading: f64 bits
-//!               +28  speed: f64 bits
+//!               +20  heading.x: f64 bits (direction vector)
+//!               +28  heading.y: f64 bits
+//!               +36  speed: f64 bits
 //! …       4     next rover id (id-issuer state): u32
 //! ```
 //!
@@ -27,11 +28,11 @@
 //! intentionally excludes the id issuer) but is required for a faithful
 //! restore — without it, resumed worlds would re-issue already-used ids.
 //!
-//! Changing this layout bumps [`SNAPSHOT_VERSION`] and requires a
-//! migration path; golden fixtures in `tests/golden/` are unaffected (the
-//! hash format is separate).
+//! Version history: **1** — initial layout, heading as one f64 angle in
+//! radians; **2** — heading as a direction vector (two f64s) for
+//! cross-platform bit-determinism (FIX-раунд 1.5 #2).
 //!
-//! **v1 stub decision:** command queues, scan buffers and in-progress
+//! **v2 stub decision:** command queues, scan buffers and in-progress
 //! command progress are *not* serialized. Queues are inputs (a resumed
 //! world starts with empty queues — scripts re-attach in phase 5.4),
 //! buffers are derived data. The trailing issuer watermark *is* kept so
@@ -51,10 +52,12 @@ use crate::world::{Rover, WorldState};
 pub const MAGIC: [u8; 4] = *b"NEGN";
 
 /// Current snapshot schema version. [`from_bytes`] accepts only this one.
-pub const SNAPSHOT_VERSION: u32 = 1;
+///
+/// v2: heading as direction vector (two f64s) — see module docs.
+pub const SNAPSHOT_VERSION: u32 = 2;
 
-/// Size of one serialized rover: id (u32) + four f64 bit patterns.
-const ROVER_BYTES: u64 = 4 + 4 * 8;
+/// Size of one serialized rover: id (u32) + five f64 bit patterns.
+const ROVER_BYTES: u64 = 4 + 5 * 8;
 
 /// Failures of [`from_bytes`] — input is never trusted, each variant says
 /// exactly what was wrong.
@@ -143,7 +146,8 @@ pub fn to_bytes(state: &WorldState) -> Vec<u8> {
         write_u32(&mut out, rover.id.raw());
         write_f64(&mut out, rover.position.x);
         write_f64(&mut out, rover.position.y);
-        write_f64(&mut out, rover.heading);
+        write_f64(&mut out, rover.heading.x);
+        write_f64(&mut out, rover.heading.y);
         write_f64(&mut out, rover.speed);
     }
     write_u32(&mut out, state.next_rover_id());
@@ -246,12 +250,13 @@ pub fn from_bytes(data: &[u8]) -> Result<WorldState, SnapshotError> {
         let id = RoverId::from_raw(raw_id);
         let x = f64::from_bits(r.read_u64()?);
         let y = f64::from_bits(r.read_u64()?);
-        let heading = f64::from_bits(r.read_u64()?);
+        let heading_x = f64::from_bits(r.read_u64()?);
+        let heading_y = f64::from_bits(r.read_u64()?);
         let speed = f64::from_bits(r.read_u64()?);
         let rover = Rover {
             id,
             position: Vec2::new(x, y),
-            heading,
+            heading: Vec2::new(heading_x, heading_y),
             speed,
             commands: VecDeque::new(),
             scan_buffer: Vec::new(),

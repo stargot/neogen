@@ -15,7 +15,9 @@ fn move_to_arrives_exactly_without_oscillation() {
     // covers the remaining 2 and lands exactly — a non-round tick count.
     world.rover_mut(id).expect("rover exists").speed = 3.0;
     let target = start + Vec2::new(30.0, 40.0); // |(30, 40)| = 50
-    world.push_commands(id, [Command::MoveTo { target }]);
+    world
+        .push_commands(id, [Command::MoveTo { target }])
+        .expect("valid commands");
 
     for expected_tick in 1..=16u64 {
         world.step();
@@ -55,14 +57,16 @@ fn commands_execute_in_order() {
     // A is 2 away → 1 tick; B is 4 more → 2 ticks; scan → SCAN_TICKS.
     let a = start + Vec2::new(2.0, 0.0);
     let b = a + Vec2::new(0.0, 4.0);
-    world.push_commands(
-        id,
-        [
-            Command::MoveTo { target: a },
-            Command::MoveTo { target: b },
-            Command::Scan { radius: 5.0 },
-        ],
-    );
+    world
+        .push_commands(
+            id,
+            [
+                Command::MoveTo { target: a },
+                Command::MoveTo { target: b },
+                Command::Scan { radius: 5.0 },
+            ],
+        )
+        .expect("valid commands");
 
     world.step(); // tick 1: at A, two commands left
     let rover = world.rover(id).expect("rover exists");
@@ -86,7 +90,9 @@ fn commands_execute_in_order() {
 fn scan_takes_exactly_scan_ticks_and_buffers_result() {
     let mut world = World::new(11);
     let (id, _) = sole_rover(&world);
-    world.push_commands(id, [Command::Scan { radius: 7.5 }]);
+    world
+        .push_commands(id, [Command::Scan { radius: 7.5 }])
+        .expect("valid commands");
 
     for tick in 1..SCAN_TICKS {
         world.step();
@@ -113,7 +119,9 @@ fn scan_takes_exactly_scan_ticks_and_buffers_result() {
 fn noop_completes_in_one_tick() {
     let mut world = World::new(3);
     let (id, start) = sole_rover(&world);
-    world.push_commands(id, [Command::Noop]);
+    world
+        .push_commands(id, [Command::Noop])
+        .expect("valid commands");
     world.step();
     let rover = world.rover(id).expect("rover exists");
     assert!(rover.commands.is_empty());
@@ -136,8 +144,10 @@ fn same_seed_same_commands_same_hash() {
         let (id_a, start_a) = sole_rover(&a);
         let (id_b, start_b) = sole_rover(&b);
         assert_eq!(start_a, start_b);
-        a.push_commands(id_a, script(start_a + Vec2::new(5.0, 5.0)));
-        b.push_commands(id_b, script(start_b + Vec2::new(5.0, 5.0)));
+        a.push_commands(id_a, script(start_a + Vec2::new(5.0, 5.0)))
+            .expect("valid commands");
+        b.push_commands(id_b, script(start_b + Vec2::new(5.0, 5.0)))
+            .expect("valid commands");
 
         for _ in 0..50 {
             a.step();
@@ -164,13 +174,15 @@ fn different_commands_produce_different_states() {
         [Command::MoveTo {
             target: start_a + Vec2::new(5.0, 0.0),
         }],
-    );
+    )
+    .expect("valid commands");
     b.push_commands(
         id_b,
         [Command::MoveTo {
             target: start_b + Vec2::new(-5.0, 0.0),
         }],
-    );
+    )
+    .expect("valid commands");
     for _ in 0..10 {
         a.step();
         b.step();
@@ -187,12 +199,14 @@ fn default_cruise_speed_is_sane() {
     assert!(speed > 0.0);
     let mut rover_world = World::new(1);
     let (id, start) = sole_rover(&rover_world);
-    rover_world.push_commands(
-        id,
-        [Command::MoveTo {
-            target: start + Vec2::new(speed, 0.0),
-        }],
-    );
+    rover_world
+        .push_commands(
+            id,
+            [Command::MoveTo {
+                target: start + Vec2::new(speed, 0.0),
+            }],
+        )
+        .expect("valid commands");
     rover_world.step();
     assert_eq!(
         rover_world.rover(id).expect("rover exists").position.x,

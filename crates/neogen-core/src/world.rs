@@ -3,12 +3,37 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use crate::commands::{Command, ScanResult};
+use crate::commands::{Command, CommandError, ScanResult};
 use crate::generate::generate_world;
 use crate::ids::{IdIssuer, RoverId};
 use crate::math::Vec2;
 use crate::rng::Rng;
 use crate::rover::step_rover;
+
+/// Failure of a `push_commands` batch (FIX-раунд 1.5 #3/#8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PushCommandsError {
+    /// No rover with this id. The bridge must surface this to the script
+    /// as a visible error — silently dropping commands hides dead rovers
+    /// from the player.
+    UnknownRover,
+    /// The command at `index` (0-based, in batch order) failed validation;
+    /// the whole batch was rejected.
+    Invalid { index: usize, error: CommandError },
+}
+
+impl std::fmt::Display for PushCommandsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownRover => write!(f, "no rover with this id"),
+            Self::Invalid { index, error } => {
+                write!(f, "command #{index} invalid: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PushCommandsError {}
 
 /// A rover entity.
 ///
@@ -21,17 +46,23 @@ pub struct Rover {
     pub id: RoverId,
     /// Position in world units.
     pub position: Vec2,
-    /// Heading in radians (0 = +X, π/2 = +Y); updated while moving.
-    pub heading: f64,
-    /// Cruise-speed override in world units per tick: `0.0` (the spawn
-    /// default) means the factory default
-    /// ([`crate::rover::DEFAULT_CRUISE_SPEED`]); `> 0` overrides it.
+    /// Heading as a (approximately unit) direction vector, computed with
+    /// IEEE basic operations only (`delta / distance`) — never via
+    /// `atan2`/`sin`/`cos`, whose libm last bit varies between platforms
+    /// (FIX-раунд 1.5 #2). Updated while moving.
+    pub heading: Vec2,
+    /// Cruise-speed override in world units per tick. Must be finite and
+    /// `>= 0.0`; `0.0` (the spawn default) selects the factory default
+    /// ([`crate::rover::DEFAULT_CRUISE_SPEED`]). A negative value is
+    /// invalid input: direct field writes would silently fall back to the
+    /// factory default (any value `<= 0` does); the sanctioned write path
+    /// (set-speed API) rejects it (FIX-раунд 1.5 #6).
     pub speed: f64,
     /// Queued commands, front executes first. *Inputs*, not physics:
-    /// excluded from the state hash and from snapshot v1 (see `hash.rs`).
+    /// excluded from the state hash and from snapshots (see `hash.rs`).
     pub commands: VecDeque<Command>,
     /// Completed scans, oldest first. *Derived data*: excluded from the
-    /// state hash and from snapshot v1 (see `hash.rs`).
+    /// state hash and from snapshots (see `hash.rs`).
     pub scan_buffer: Vec<ScanResult>,
     /// Progress of the in-progress command: ticks left for the current
     /// Scan (crate-internal; reset when any command completes).
@@ -125,7 +156,7 @@ impl WorldState {
     ///
     /// Ids come from the sequential issuer, so spawn order alone decides
     /// them — seed-independent and deterministic.
-    pub fn spawn_rover(&mut self, position: Vec2, heading: f64) -> RoverId {
+    pub fn spawn_rover(&mut self, position: Vec2, heading: Vec2) -> RoverId {
         let id = self.id_issuer.issue();
         let rover = Rover {
             id,
@@ -141,21 +172,30 @@ impl WorldState {
     }
 
     /// Append commands to a rover's queue (script entry point).
-    /// Returns how many commands were queued (0 if the id is unknown).
+    ///
+    /// Atomic all-or-nothing semantics (FIX-раунд 1.5 #3): the rover id is
+    /// checked first ([`PushCommandsError::UnknownRover`]), then every
+    /// command is validated; only if the *whole batch* is valid is anything
+    /// queued. Returns the total queue length after the push.
     pub fn push_commands(
         &mut self,
         id: RoverId,
         commands: impl IntoIterator<Item = Command>,
-    ) -> usize {
-        let Some(rover) = self.rovers.get_mut(&id) else {
-            return 0;
-        };
-        let mut queued = 0;
-        for command in commands {
-            rover.commands.push_back(command);
-            queued += 1;
+    ) -> Result<usize, PushCommandsError> {
+        if !self.rovers.contains_key(&id) {
+            return Err(PushCommandsError::UnknownRover);
         }
-        queued
+        let batch: Vec<Command> = commands.into_iter().collect();
+        for (index, command) in batch.iter().enumerate() {
+            command
+                .validate()
+                .map_err(|error| PushCommandsError::Invalid { index, error })?;
+        }
+        let rover = self.rovers.get_mut(&id).expect("existence checked above");
+        for command in batch {
+            rover.commands.push_back(command);
+        }
+        Ok(rover.commands.len())
     }
 
     /// Iterate rovers in ascending-id order.
@@ -240,12 +280,11 @@ impl World {
     }
 
     /// Append commands to a rover's queue (delegates to the state).
-    /// Returns how many commands were queued (0 if the id is unknown).
     pub fn push_commands(
         &mut self,
         id: RoverId,
         commands: impl IntoIterator<Item = Command>,
-    ) -> usize {
+    ) -> Result<usize, PushCommandsError> {
         self.state.push_commands(id, commands)
     }
 
@@ -259,6 +298,8 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::CommandError;
+    use crate::math::Vec2;
 
     #[test]
     fn fresh_world_starts_at_tick_zero_with_one_parked_rover() {
@@ -273,6 +314,9 @@ mod tests {
         assert!((-bound..bound).contains(&rover.position.x));
         assert!((-bound..bound).contains(&rover.position.y));
         assert_eq!(rover.speed, 0.0);
+        // Heading is a normalized (approximately unit) direction vector.
+        let length = rover.heading.length();
+        assert!((length - 1.0).abs() < 1e-12, "not unit: {length}");
     }
 
     #[test]
@@ -285,5 +329,60 @@ mod tests {
         let rover = world.rovers().next().expect("rover exists");
         assert_eq!(rover.position, start);
         assert!(rover.commands.is_empty());
+    }
+
+    #[test]
+    fn invalid_batch_is_rejected_atomically() {
+        let mut world = World::new(3);
+        let id = world.rovers().next().expect("rover exists").id;
+        let error = world
+            .push_commands(
+                id,
+                [
+                    Command::MoveTo {
+                        target: Vec2::new(1.0, 1.0),
+                    },
+                    Command::Scan { radius: -1.0 },
+                ],
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            PushCommandsError::Invalid {
+                index: 1,
+                error: CommandError::NegativeRadius
+            }
+        );
+        // Nothing was queued — the whole batch was rejected.
+        assert!(world.rover(id).expect("rover exists").commands.is_empty());
+    }
+
+    #[test]
+    fn push_to_unknown_rover_is_an_error() {
+        let mut world = World::new(3);
+        let ghost = RoverId::from_raw(999);
+        assert_eq!(
+            world.push_commands(ghost, [Command::Noop]).unwrap_err(),
+            PushCommandsError::UnknownRover
+        );
+        // Unknown rover is checked even before command validation.
+        assert_eq!(
+            world
+                .push_commands(ghost, [Command::Scan { radius: -1.0 }])
+                .unwrap_err(),
+            PushCommandsError::UnknownRover
+        );
+    }
+
+    #[test]
+    fn push_error_messages_are_readable() {
+        let e = PushCommandsError::Invalid {
+            index: 1,
+            error: CommandError::NotFinite { field: "target.x" },
+        }
+        .to_string();
+        assert!(e.contains("#1") && e.contains("target.x"), "{e}");
+        let e = PushCommandsError::UnknownRover.to_string();
+        assert!(e.contains("rover"), "{e}");
     }
 }

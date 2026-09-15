@@ -64,8 +64,10 @@ fn moving_rover_advances_deterministically() {
     let id = a.rovers().next().expect("rover exists").id;
     let start = a.rover(id).expect("rover exists").position;
     let target = start + Vec2::from_angle(FRAC_PI_2) * 200.0; // +Y, 200 away
-    a.push_commands(id, [Command::MoveTo { target }]);
-    b.push_commands(id, [Command::MoveTo { target }]);
+    a.push_commands(id, [Command::MoveTo { target }])
+        .expect("valid commands");
+    b.push_commands(id, [Command::MoveTo { target }])
+        .expect("valid commands");
 
     for _ in 0..100 {
         a.step();
@@ -93,7 +95,7 @@ fn id_issuance_is_sequential_and_seed_independent() {
 
     // A second spawn continues the same ascending sequence.
     let mut state = World::new(0).into_state();
-    let second = state.spawn_rover(Vec2::ZERO, 0.0);
+    let second = state.spawn_rover(Vec2::ZERO, Vec2::new(1.0, 0.0));
     assert_eq!(second, RoverId::from_raw(2));
     assert_eq!(state.rovers().count(), 2);
 
