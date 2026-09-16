@@ -18,9 +18,25 @@ script = ExtResource("1_visual")
 polygon = PackedVector2Array(-0.42, -0.3, 0.18, -0.3, 0.42, 0, 0.18, 0.3, -0.42, 0.3)
 color = Color(0.93, 0.73, 0.35, 1)
 
+[node name="Cabin" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(0.0, -0.17, 0.2, -0.17, 0.28, -0.05, 0.28, 0.05, 0.2, 0.17, 0.0, 0.17)
+color = Color(0.72, 0.9, 0.86, 0.62)
+
+[node name="CabinGlint" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(0.06, -0.13, 0.12, -0.13, 0.04, 0.12, 0.0, 0.12)
+color = Color(0.98, 0.99, 0.9, 0.5)
+
 [node name="Beacon" type="Polygon2D" parent="Body"]
 polygon = PackedVector2Array(0.05, -0.07, 0.28, 0, 0.05, 0.07)
 color = Color(0.98, 0.94, 0.78, 1)
+
+[node name="Antenna" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(-0.24, -0.12, -0.42, -0.52, -0.39, -0.54, -0.21, -0.14)
+color = Color(0.35, 0.3, 0.22, 1)
+
+[node name="AntennaTip" type="Polygon2D" parent="Body"]
+polygon = PackedVector2Array(-0.45, -0.58, -0.41, -0.55, -0.44, -0.51, -0.48, -0.54)
+color = Color(1, 0.71, 0.42, 1)
 
 [node name="Trail" type="Line2D" parent="."]
 top_level = true

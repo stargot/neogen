@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/rover.tscn" id="2_rover"]
@@ -8,9 +8,14 @@
 [ext_resource type="PackedScene" path="res://ui/editor_panel.tscn" id="6_editor"]
 [ext_resource type="Script" path="res://scripts/runner.gd" id="7_runner"]
 [ext_resource type="PackedScene" path="res://ui/onboarding_hint.tscn" id="8_hint"]
+[ext_resource type="Script" path="res://scripts/sky.gd" id="9_sky"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
+
+[node name="Sky" type="CanvasLayer" parent="."]
+layer = -10
+script = ExtResource("9_sky")
 
 [node name="World" parent="." instance=ExtResource("4_world")]
 

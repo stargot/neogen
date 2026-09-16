@@ -96,3 +96,10 @@ jobs:
           set -o pipefail
           ../Godot_v4.7.2-stable_linux.x86_64 --headless --script res://tests/scene_integration.gd 2>&1 | tee /tmp/scene.log
           grep -q "SCENE INTEGRATION OK" /tmp/scene.log
+
+      - name: Facade determinism (ground_gen from core seed)
+        working-directory: godot
+        run: |
+          set -o pipefail
+          ../Godot_v4.7.2-stable_linux.x86_64 --headless --script res://tests/facade_determinism.gd 2>&1 | tee /tmp/facade.log
+          grep -q "FACADE DETERMINISM OK" /tmp/facade.log

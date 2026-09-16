@@ -5,7 +5,7 @@ extends Node2D
 
 const CELL := 1.0          # one core world unit
 const HALF_EXTENT := 12.0  # grid spans this many units around the origin
-const LINE_COLOR := Color(0.93, 0.86, 0.66, 0.16)  # warm, faint
+const LINE_COLOR := Color(0.93, 0.86, 0.66, 0.09)  # warm, faint (weakened for the ground, 6.5.1)
 
 # The start pad mirrors the simulation core: START_PAD_HALF_SIZE = 8
 # (neogen-core generate.rs) -> a 16x16 landing zone, plus a 1-unit visual
