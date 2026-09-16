@@ -88,7 +88,37 @@ func _initialize() -> void:
 	_check(v42 == gg.verdancy(42, 3, 3), "verdancy is pure")
 	_check(v42 >= 0.0 and v42 <= 1.0, "verdancy in 0..1")
 
-	# 6. Stone stays rare (<= 12% of cells for seed 42).
+	# 6. Settlement (6.5.4): deterministic, seed-divergent, keep-outs hold.
+	var sg = load("res://scripts/settlement.gd")
+	var sa: Array = sg.layout(42)
+	var sb: Array = sg.layout(42)
+	_check(sa == sb, "seed 42 -> identical settlement layout on both runs")
+	_check(sg.layout_hash(42) == sg.layout_hash(42), "settlement layout hash is stable")
+	_check(sg.layout_hash(42) != sg.layout_hash(43), "seed 43 -> different settlement")
+	_check(sa.size() >= 4 and sa.size() <= 5, "cluster has 4-5 structures, got %d" % sa.size())
+	var struct_kinds := {}
+	for st in sa:
+		struct_kinds[st.kind] = true
+	_check(
+		struct_kinds.has(sg.Kind.DOME) and struct_kinds.has(sg.Kind.PANEL) and struct_kinds.has(sg.Kind.MAST),
+		"cluster composition: dome + panels + mast"
+	)
+	var keepout_violations := 0
+	var on_blocking := 0
+	for st in sa:
+		# Outside the start pad (with the prop keep-out margin).
+		if absf(st.pos.x) <= 10.0 and absf(st.pos.y) <= 10.0:
+			keepout_violations += 1
+		# Off the patrol track corridor.
+		if absf(st.pos.y) <= 1.6 and st.pos.x >= -1.0 and st.pos.x <= 9.0:
+			keepout_violations += 1
+		# Not on a rock/crystal cell.
+		if sg._on_blocking_prop(42, st.pos):
+			on_blocking += 1
+	_check(keepout_violations == 0, "settlement stays off the pad and track")
+	_check(on_blocking == 0, "settlement avoids rock/crystal cells")
+
+	# 7. Stone stays rare (<= 12% of cells for seed 42).
 	var stones := 0
 	for y in range(-32, 32):
 		for x in range(-32, 32):

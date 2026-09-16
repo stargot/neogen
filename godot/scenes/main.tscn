@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/rover.tscn" id="2_rover"]
@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://ui/onboarding_hint.tscn" id="8_hint"]
 [ext_resource type="Script" path="res://scripts/sky.gd" id="9_sky"]
 [ext_resource type="Shader" path="res://shaders/vignette.gdshader" id="10_vignette"]
+[ext_resource type="Script" path="res://scripts/settlement.gd" id="11_settlement"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_vignette"]
 shader = ExtResource("10_vignette")
@@ -24,6 +25,9 @@ layer = -10
 script = ExtResource("9_sky")
 
 [node name="World" parent="." instance=ExtResource("4_world")]
+
+[node name="Settlement" type="Node2D" parent="."]
+script = ExtResource("11_settlement")
 
 [node name="Vignette" type="CanvasLayer" parent="."]
 layer = 1
