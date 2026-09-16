@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/rover.tscn" id="2_rover"]
@@ -9,6 +9,12 @@
 [ext_resource type="Script" path="res://scripts/runner.gd" id="7_runner"]
 [ext_resource type="PackedScene" path="res://ui/onboarding_hint.tscn" id="8_hint"]
 [ext_resource type="Script" path="res://scripts/sky.gd" id="9_sky"]
+[ext_resource type="Shader" path="res://shaders/vignette.gdshader" id="10_vignette"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_vignette"]
+shader = ExtResource("10_vignette")
+shader_parameter/strength = 0.32
+shader_parameter/start = 0.62
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
@@ -18,6 +24,18 @@ layer = -10
 script = ExtResource("9_sky")
 
 [node name="World" parent="." instance=ExtResource("4_world")]
+
+[node name="Vignette" type="CanvasLayer" parent="."]
+layer = 1
+
+[node name="Corners" type="ColorRect" parent="Vignette"]
+material = SubResource("ShaderMaterial_vignette")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 
 [node name="Sim" type="SimNode" parent="."]
 
