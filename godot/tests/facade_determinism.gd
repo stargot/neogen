@@ -41,7 +41,54 @@ func _initialize() -> void:
 			kinds[gg.cell_kind(42, x, y)] = true
 	_check(kinds.size() == 4, "all four ground kinds present, got %d" % kinds.size())
 
-	# 5. Stone stays rare (<= 12% of cells for seed 42).
+	# 5. Props (6.5.3): deterministic, seed-divergent, kind-complete.
+	var pa: int = gg.prop_layout_hash(42, 16)
+	var pb: int = gg.prop_layout_hash(42, 16)
+	_check(pa == pb, "seed 42 -> identical prop layout hash on both runs")
+	var pc: int = gg.prop_layout_hash(43, 16)
+	_check(pa != pc, "seed 43 -> different prop layout hash")
+	_check(
+		gg.prop(42, 7, -3) == gg.prop(42, 7, -3) and gg.prop_params(42, 7, -3) == gg.prop_params(42, 7, -3),
+		"prop and prop_params are pure"
+	)
+
+	# Keep-outs: the pad and the patrol track stay prop-free.
+	_check(gg.prop(42, 0, 0) == gg.Prop.NONE, "pad center has no props")
+	_check(gg.prop(42, 7, 0) == gg.Prop.NONE, "patrol track row stays clear")
+	var pad_violations := 0
+	for y in range(-9, 10):
+		for x in range(-9, 10):
+			if gg.prop(42, x, y) != gg.Prop.NONE:
+				pad_violations += 1
+	_check(pad_violations == 0, "no props anywhere on the start pad")
+
+	# All three prop kinds occur on the 64x64 window (seed 42).
+	var prop_kinds := {}
+	var grass := 0
+	var rocks := 0
+	var crystals := 0
+	for y in range(-32, 32):
+		for x in range(-32, 32):
+			var kind: int = gg.prop(42, x, y)
+			if kind != gg.Prop.NONE:
+				prop_kinds[kind] = true
+			if kind == gg.Prop.GRASS:
+				grass += 1
+			elif kind == gg.Prop.ROCK:
+				rocks += 1
+			elif kind == gg.Prop.CRYSTAL:
+				crystals += 1
+	_check(prop_kinds.size() == 3, "grass, rock and crystal all present")
+	_check(grass <= 1500, "grass stays sparse-ish: %d/4096" % grass)
+	_check(rocks <= 200, "rocks rare: %d/4096" % rocks)
+	_check(crystals <= 100, "crystals rare: %d/4096" % crystals)
+
+	# Verdancy (macro variation) is pure and in range.
+	var v42: float = gg.verdancy(42, 3, 3)
+	_check(v42 == gg.verdancy(42, 3, 3), "verdancy is pure")
+	_check(v42 >= 0.0 and v42 <= 1.0, "verdancy in 0..1")
+
+	# 6. Stone stays rare (<= 12% of cells for seed 42).
 	var stones := 0
 	for y in range(-32, 32):
 		for x in range(-32, 32):
