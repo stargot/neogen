@@ -7,11 +7,19 @@
 extends CanvasLayer
 
 const ERROR_PREFIX := "error: "
+const Noosphere = preload("res://scripts/noosphere.gd")
 
 var last_error := ""
 
 var _sim = null
 var _seed_text := "seed: —"
+var _noosphere = Noosphere.new()
+var _rover: int = -1
+var _last_scans := -1
+@onready var energy_label: Label = get_node("Panel/Margin/VBox/EnergyLabel")
+@onready var energy_bar: ProgressBar = get_node("Panel/Margin/VBox/EnergyBar")
+@onready var ecology_label: Label = get_node("Panel/Margin/VBox/EcologyLabel")
+@onready var ecology_bar: ProgressBar = get_node("Panel/Margin/VBox/EcologyBar")
 
 @onready var tick_label: Label = $Panel/Margin/VBox/TickLabel
 @onready var seed_label: Label = $Panel/Margin/VBox/SeedLabel
@@ -36,6 +44,10 @@ func bind_sim(sim) -> void:
 	# Seed is fixed at host creation (changing #[var] seed later has no
 	# effect) - cache the text once instead of per-frame get() calls.
 	_seed_text = "seed: %d" % sim.get("seed")
+	var ids: PackedInt64Array = sim.get_rover_ids()
+	if ids.size() > 0:
+		_rover = ids[0]
+		_last_scans = sim.get_rover_scan_count(_rover)
 
 
 func _process(_delta: float) -> void:
@@ -49,6 +61,19 @@ func _process(_delta: float) -> void:
 		var state: Dictionary = _sim.get_script_state(id)
 		parts.append("#%d: %s" % [id, _state_text(state)])
 	status_label.text = "scripts: " + (" | ".join(parts) if parts.size() > 0 else "none")
+
+	# Noosphere pulse (6.5.6): movement from the polled speed, scans from
+	# buffer-length increases (saturation caveat in noosphere.gd).
+	if _rover >= 0:
+		var speed: float = _sim.get_rover_speed(_rover)
+		var scans_now: int = _sim.get_rover_scan_count(_rover)
+		var new_scans := maxi(scans_now - _last_scans, 0)
+		_last_scans = scans_now
+		_noosphere.update(get_process_delta_time(), speed > 0.05, new_scans)
+		energy_label.text = "энергия: %d" % roundi(_noosphere.energy)
+		energy_bar.value = _noosphere.energy
+		ecology_label.text = "экология: %d" % roundi(_noosphere.ecology)
+		ecology_bar.value = _noosphere.ecology
 
 
 func _state_text(state: Dictionary) -> String:
@@ -71,3 +96,8 @@ func _state_text(state: Dictionary) -> String:
 func _on_log_line(_tick: int, _rover_id: int, text: String) -> void:
 	if text.begins_with(ERROR_PREFIX):
 		last_error = text
+
+
+## The pulse model, exposed for tests.
+func get_noosphere():
+	return _noosphere

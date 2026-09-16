@@ -426,6 +426,17 @@ impl ScriptHost {
             .map(|r| r.heading())
     }
 
+    /// Completed scans currently held in the rover's scan buffer (the
+    /// HUD detects scan events as increases; the buffer is capped, see
+    /// MAX_SCAN_BUFFER). Read-only.
+    pub fn rover_scan_count(&self, rover: RoverId) -> Option<usize> {
+        self.context
+            .borrow()
+            .world()
+            .rover(rover)
+            .map(|r| r.scan_results().len())
+    }
+
     /// Number of commands queued for a rover.
     pub fn rover_queue_len(&self, rover: RoverId) -> Option<usize> {
         self.context

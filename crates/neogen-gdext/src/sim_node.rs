@@ -198,6 +198,16 @@ impl SimNode {
             .unwrap_or(-1.0)
     }
 
+    /// Completed scans held in the rover's buffer (HUD noosphere pulse;
+    /// the buffer is capped at 16, so the counter saturates without a
+    /// drain - documented prototype limitation). -1 for unknown rovers.
+    #[func]
+    fn get_rover_scan_count(&mut self, id: i64) -> i64 {
+        self.ensure_host()
+            .and_then(|host| host.rover_scan_count(RoverId::from_raw(id as u32)))
+            .map_or(-1, |count| count as i64)
+    }
+
     /// Rover's heading in Godot coordinates (approximately unit vector;
     /// ZERO for unknown rovers). Silent by design: polled per frame
     /// (same convention as `get_rover_speed`).

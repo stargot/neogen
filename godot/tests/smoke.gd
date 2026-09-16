@@ -61,6 +61,7 @@ func _initialize() -> void:
 	sim2.queue_free()
 	await _run_stop_checks()
 	_console_panel_checks()
+	await _noosphere_checks()
 	_speed_heading_checks()
 	await _patrol_demo_checks()
 	_onboarding_checks()
@@ -404,6 +405,68 @@ func _console_panel_checks() -> void:
 
 	sim.queue_free()
 	panel.queue_free()
+
+
+func _noosphere_checks() -> void:
+	# Backlog 6.5.6: the pulse model is predictable, clamped, and the HUD
+	# bars follow it (poll-until-timeout for the UI-bound parts).
+	var Noosphere = load("res://scripts/noosphere.gd")
+
+	# Pure model: driving drains, idle restores, scans trade ecology.
+	var noo = Noosphere.new()
+	var e0: float = noo.energy
+	var ec0: float = noo.ecology
+	noo.update(10.0, true, 0)
+	check(noo.energy < e0, "driving drains energy (%.1f -> %.1f)" % [e0, noo.energy])
+	check(noo.ecology < ec0, "driving costs ecology (%.1f -> %.1f)" % [ec0, noo.ecology])
+	var e_drive: float = noo.energy
+	noo.update(10.0, false, 0)
+	check(noo.energy > e_drive, "idle recharges energy (%.1f -> %.1f)" % [e_drive, noo.energy])
+	var e_idle: float = noo.energy
+	var ec_idle: float = noo.ecology
+	noo.update(0.0, false, 3)
+	check(noo.energy > e_idle, "scans boost energy (%.1f -> %.1f)" % [e_idle, noo.energy])
+	check(noo.ecology < ec_idle, "scans cost ecology (%.1f -> %.1f)" % [ec_idle, noo.ecology])
+
+	# Clamps hold at both ends.
+	noo.energy = 99.0
+	noo.update(1000.0, false, 1000)
+	check(noo.energy == 100.0, "energy clamps at 100")
+	noo.energy = 1.0
+	noo.update(1000.0, true, 0)
+	check(noo.energy == 0.0, "energy clamps at 0")
+	noo.ecology = 1.0
+	noo.update(1000.0, true, 0)
+	check(noo.ecology == 0.0, "ecology clamps at 0")
+
+	# Live HUD: attach a move script -> energy bar visibly drops, then
+	# Stop -> it recovers (UI-bound: poll-until-timeout).
+	var sim := SimNode.new()
+	sim.process_mode = Node.PROCESS_MODE_DISABLED
+	root.add_child(sim)
+	var id := sim.get_rover_ids()[0]
+	var hud: CanvasLayer = load("res://ui/hud.tscn").instantiate()
+	hud.bind_sim(sim)
+	root.add_child(hud)
+	await process_frame
+
+	sim.attach_script(id, "move(60, 0)")
+	sim.step_ticks(1)
+	var model = hud.get_noosphere()
+	var start_energy: float = model.energy
+	var frame := await poll_until(func() -> bool: return model.energy < start_energy - 1.0, 240)
+	check(frame >= 0, "live HUD: energy falls while driving (frame %d)" % frame)
+	sim.stop_script(1)
+	sim.clear_rover_commands(id)
+	var drained: float = model.energy
+	frame = await poll_until(func() -> bool: return model.energy > drained + 0.5, 240)
+	check(frame >= 0, "live HUD: energy recovers after Stop (frame %d)" % frame)
+	check(
+		model.energy >= 0.0 and model.energy <= 100.0,
+		"live model stays clamped"
+	)
+	sim.queue_free()
+	hud.queue_free()
 
 
 func _speed_heading_checks() -> void:
