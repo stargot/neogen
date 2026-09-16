@@ -15,7 +15,7 @@
 #     the art pass).
 extends Camera2D
 
-const MIN_ZOOM := 2.0    # far out: the whole grid in view
+const MIN_ZOOM := 20.0   # far out: capped so the screen stays inside the drawn ground window (6.5.7)
 const MAX_ZOOM := 50.0   # close up: single grid cells fill the screen
 const ZOOM_STEP := 1.25
 
@@ -23,8 +23,9 @@ var _panning := false
 
 
 func _ready() -> void:
-	# ~300 px for the 18-unit start pad (review #1: 16.67 px/unit).
-	zoom = Vector2(16.67, 16.67)
+	# ~360 px for the 18-unit start pad and never beyond the ground
+	# window (6.5.7 coherence pass: 20 px/unit x 96 u window = screen).
+	zoom = Vector2(20.0, 20.0)
 	position = Vector2.ZERO
 	make_current()
 

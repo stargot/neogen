@@ -12,7 +12,7 @@ extends Node2D
 
 const GroundGen = preload("res://scripts/ground_gen.gd")
 
-const HALF_CELLS := 32  # 64x64 cells around the origin - covers max zoom
+const HALF_CELLS := 48  # 96x96 cells around the origin - covers the zoom range incl. MIN_ZOOM (6.5.7)
 
 @export var sim_path: NodePath = ^"../../Sim"
 
